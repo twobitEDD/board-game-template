@@ -29,8 +29,6 @@ export function PlayerPanels({
   gameMessage = '',
   currentPlayerIndex = 0
 }: PlayerPanelsProps) {
-  console.log('PlayerPanels rendering with config:', gameConfig)
-  
   // Create players based on game config
   const playerColors = ['#2196F3', '#F44336', '#4CAF50', '#FF9800']
   const playerNames = gameConfig?.playerNames || []
@@ -54,8 +52,6 @@ export function PlayerPanels({
           score: playerScores[index] || 0, // Use actual score for each player
           isActive: index === currentPlayerIndex
         }))
-    
-    console.log('Generated players:', players)
   } catch (error) {
     console.error('Error creating players:', error)
     // Fallback to single player

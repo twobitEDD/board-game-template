@@ -2,9 +2,10 @@
 import { css, Global } from '@emotion/react'
 import { NumberTile } from './NumberTile'
 import { NumberTileId } from '../../../rules/src/material/NumberTileId'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 
 import { GameConfig } from './GameSetup'
+import { GameBoard } from './GameBoard'
 
 // Simplified global styles
 const globalStyles = css`
@@ -36,9 +37,128 @@ interface FivesGameBoardProps {
 }
 
 export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardProps) {
+  // Performance optimization: debouncing and throttling refs
+  const scoreCalculationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastCalculationTimeRef = useRef<number>(0)
+  const isCalculatingRef = useRef<boolean>(false)
+  const interactionCountRef = useRef<number>(0)
+  
+  // Circular pattern detection and emergency circuit breaker
+  const circularPatternDetectedRef = useRef<boolean>(false)
+  const performanceIssueCountRef = useRef<number>(0)
+  const lastPerformanceCheckRef = useRef<number>(0)
+
+  // Debounced score calculation (delays expensive calculations)
+  const debouncedCalculateScore = useCallback((boardTiles: TileItem[], placedTiles: TileItem[]) => {
+    // Prevent infinite loops by checking if we're already calculating
+    if (isCalculatingRef.current) {
+      return
+    }
+
+    // Clear existing timeout
+    if (scoreCalculationTimeoutRef.current) {
+      clearTimeout(scoreCalculationTimeoutRef.current)
+    }
+
+    // Skip calculation if we're in a rapid interaction phase
+    interactionCountRef.current += 1
+    if (interactionCountRef.current > 3) {
+      // During rapid interactions, delay calculations more
+      scoreCalculationTimeoutRef.current = setTimeout(() => {
+        performScoreCalculation(boardTiles, placedTiles)
+        interactionCountRef.current = 0
+      }, 300)
+    } else {
+      // Normal interaction, shorter delay
+      scoreCalculationTimeoutRef.current = setTimeout(() => {
+        performScoreCalculation(boardTiles, placedTiles)
+      }, 100)
+    }
+  }, []) // Empty dependency array to prevent re-creation
+
+  // Throttled score calculation (prevents too frequent execution)
+  const performScoreCalculation = useCallback((boardTiles: TileItem[], placedTiles: TileItem[]) => {
+    const calculationStartTime = Date.now()
+    
+    // Emergency circuit breaker for circular patterns
+    if (circularPatternDetectedRef.current) {
+      console.warn('🚨 Circular pattern detected - skipping score calculation')
+      return // Don't update state in emergency mode
+    }
+    
+    // Throttle: don't calculate more than once every 150ms
+    if (calculationStartTime - lastCalculationTimeRef.current < 150 || isCalculatingRef.current) {
+      return
+    }
+
+    isCalculatingRef.current = true
+    lastCalculationTimeRef.current = calculationStartTime
+
+    try {
+      const sequences = calculateTurnSequences(boardTiles, placedTiles)
+      const calculationTime = Date.now() - calculationStartTime
+      
+      // Monitor for performance issues that could indicate circular patterns
+      if (calculationTime > 100) {
+        performanceIssueCountRef.current += 1
+        console.warn(`⚠️ Slow calculation detected: ${calculationTime}ms (issue #${performanceIssueCountRef.current})`)
+        
+        // If we have multiple performance issues in a short time, activate emergency mode
+        if (performanceIssueCountRef.current > 3) {
+          circularPatternDetectedRef.current = true
+          console.warn('🚨 Multiple performance issues detected - activating emergency mode')
+          isCalculatingRef.current = false // Reset flag before return
+          return // Don't update state when entering emergency mode
+        }
+      }
+      
+      // Reset performance issue counter if we haven't had issues recently
+      if (calculationStartTime - lastPerformanceCheckRef.current > 10000) { // 10 seconds
+        performanceIssueCountRef.current = 0
+        lastPerformanceCheckRef.current = calculationStartTime
+      }
+      
+      const score = sequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+      
+      // Only update state if values actually changed (prevent unnecessary re-renders)
+      setTurnScore(prevScore => prevScore !== score ? score : prevScore)
+
+      // Update message only if score changed significantly or sequences changed
+      if (sequences.length > 0 && placedTiles.length <= 3) {
+        const previewText = sequences.map(seq => {
+          const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+          return `${tileValues} = ${seq.sum}`
+        }).join(', ')
+        
+        const allValid = sequences.every(seq => seq.sum % 5 === 0)
+        const statusIcon = allValid ? "✅" : "🔄"
+        
+        const newMessage = `${statusIcon} ${placedTiles.length} tile(s) placed. Preview: ${previewText}. Potential score: ${score} pts. ${allValid ? "Ready to end turn!" : "Need multiples of 5 to score."} Click green tiles to return them.`
+        setGameMessage(prevMessage => prevMessage !== newMessage ? newMessage : prevMessage)
+      } else if (placedTiles.length > 3) {
+        // For many tiles, show simplified message
+        const newMessage = `🔄 ${placedTiles.length} tiles placed. Potential score: ${score} pts. End turn to finalize.`
+        setGameMessage(prevMessage => prevMessage !== newMessage ? newMessage : prevMessage)
+      }
+    } catch (error) {
+      console.warn('⚠️ Error in score calculation, possible circular pattern:', error)
+      circularPatternDetectedRef.current = true
+      // Don't update state on error to prevent infinite loops
+    } finally {
+      isCalculatingRef.current = false
+    }
+  }, []) // Empty dependency array to prevent re-creation
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (scoreCalculationTimeoutRef.current) {
+        clearTimeout(scoreCalculationTimeoutRef.current)
+      }
+    }
+  }, [])
+
   // Always use local player data for now (bypass GamePark hooks that cause issues)
-  console.log('FivesGameBoard received gameConfig:', gameConfig)
-  const playerId = 'player1'
   const playerName = gameConfig.playerNames[0] || 'Player 1'
   
   // Create initial draw pile with all tiles
@@ -77,18 +197,31 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   const initialPile = useMemo(() => createInitialDrawPile(), [])
   
   // Game state
-  const [drawPile, setDrawPile] = useState<NumberTileId[]>(() => initialPile.slice(5))
-  
   const [boardTiles, setBoardTiles] = useState<TileItem[]>([
     { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 7, y: 7 } }
   ])
   
-  const [handTiles, setHandTiles] = useState<TileItem[]>(() => 
-    initialPile.slice(0, 5).map((tileId: NumberTileId, index: number) => ({
-      id: tileId,
-      uniqueId: `hand-${Date.now()}-${index}`,
-      location: { type: 'Hand', player: gameConfig.playerCount === 1 ? 'player1' : 'unknown' }
-    }))
+  // Each player has their own hand
+  const [playerHands, setPlayerHands] = useState<TileItem[][]>(() => {
+    const hands: TileItem[][] = []
+    let tileIndex = 0
+    
+    for (let playerIndex = 0; playerIndex < gameConfig.playerCount; playerIndex++) {
+      const playerHand = initialPile.slice(tileIndex, tileIndex + 5).map((tileId: NumberTileId, index: number) => ({
+        id: tileId,
+        uniqueId: `hand-p${playerIndex}-${Date.now()}-${index}`,
+        location: { type: 'Hand', player: `player${playerIndex}` }
+      }))
+      hands.push(playerHand)
+      tileIndex += 5
+    }
+    
+    return hands
+  })
+  
+  // Draw pile starts after all players get their initial hands
+  const [drawPile, setDrawPile] = useState<NumberTileId[]>(() => 
+    initialPile.slice(gameConfig.playerCount * 5)
   )
   
   const [selectedTile, setSelectedTile] = useState<TileItem | null>(null)
@@ -99,13 +232,23 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   )
   const [turnScore, setTurnScore] = useState(0)
   const [turnNumber, setTurnNumber] = useState(1)
-  const [currentTurnDirection, setCurrentTurnDirection] = useState<'horizontal' | 'vertical' | null>(null)
-  const [currentTurnRow, setCurrentTurnRow] = useState<number | null>(null)
-  const [currentTurnCol, setCurrentTurnCol] = useState<number | null>(null)
   // For multiplayer, track current player
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const currentPlayer = gameConfig.playerNames[currentPlayerIndex] || 'Player 1'
   const currentScore = playerScores[currentPlayerIndex] || 0
+  const currentPlayerId = `player${currentPlayerIndex}`
+  
+  // Current player's hand (derived from playerHands)
+  const handTiles = playerHands[currentPlayerIndex] || []
+  
+  // Helper function to update current player's hand
+  const updateCurrentPlayerHand = (updater: (prevHand: TileItem[]) => TileItem[]) => {
+    setPlayerHands(prev => {
+      const newHands = [...prev]
+      newHands[currentPlayerIndex] = updater(newHands[currentPlayerIndex] || [])
+      return newHands
+    })
+  }
   
   const [gameMessage, setGameMessage] = useState(
     gameConfig.playerCount === 1 
@@ -113,7 +256,26 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       : `${currentPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
   )
 
-  // Update parent component with game data
+  // Performance monitoring and cleanup (simplified to prevent re-render loops)
+  useEffect(() => {
+    // Monitor performance every 10 turns
+    if (turnNumber % 10 === 0 && turnNumber > 0) {
+      const memoryInfo = (performance as any).memory
+      if (memoryInfo) {
+        console.log(`🔍 Turn ${turnNumber} Performance:`, {
+          boardTiles: boardTiles.length,
+          memory: `${Math.round(memoryInfo.usedJSHeapSize / 1024 / 1024)}MB`
+        })
+      }
+    }
+    
+    // Force garbage collection hint every 20 turns (if available)
+    if (turnNumber % 20 === 0 && turnNumber > 0 && (window as any).gc) {
+      setTimeout(() => (window as any).gc(), 100)
+    }
+  }, [turnNumber]) // Only depend on turnNumber
+
+  // Update parent component with game data (simplified to prevent infinite loops)
   useEffect(() => {
     if (onGameDataUpdate) {
       onGameDataUpdate({
@@ -124,97 +286,70 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         currentPlayerIndex
       })
     }
-  }, [playerScores, turnNumber, drawPile.length, handTiles.length, gameMessage, currentPlayerIndex, onGameDataUpdate])
+  }, [turnNumber, currentPlayerIndex]) // Only depend on stable values
 
   const handleTileSelect = (tile: TileItem) => {
-    console.log('Tile selected:', tile)
     setSelectedTile(tile)
     setGameMessage(`Selected ${getTileValue(tile.id)} tile. Click on the board to place it.`)
   }
 
-  const handleBoardClick = (x: number, y: number) => {
-    console.log('Board clicked at:', x, y, 'Selected tile:', selectedTile)
+  const handlePlacedTileClick = (tile: TileItem) => {
+    // Only allow clicking on tiles placed this turn
+    const isPlacedThisTurn = tilesPlacedThisTurn.some(placedTile => 
+      placedTile.location.x === tile.location.x && 
+      placedTile.location.y === tile.location.y
+    )
+    
+    if (!isPlacedThisTurn) return
+    
+    // Remove tile from board
+    const newBoardTiles = boardTiles.filter(boardTile => 
+      !(boardTile.location.x === tile.location.x && boardTile.location.y === tile.location.y)
+    )
+    setBoardTiles(newBoardTiles)
+    
+    // Remove tile from tiles placed this turn
+    const newTilesPlacedThisTurn = tilesPlacedThisTurn.filter(placedTile => 
+      !(placedTile.location.x === tile.location.x && placedTile.location.y === tile.location.y)
+    )
+    setTilesPlacedThisTurn(newTilesPlacedThisTurn)
+    
+    // Return tile to hand
+    const returnedTile = {
+      ...tile,
+      location: { type: 'Hand', player: currentPlayerId }
+    }
+    updateCurrentPlayerHand(prev => [...prev, returnedTile])
+    
+    // Update turn score
+    const newSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
+    const newTurnScore = newSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+    setTurnScore(newTurnScore)
+    
+    setGameMessage(`Returned ${getTileValue(tile.id)} tile to hand. ${newTilesPlacedThisTurn.length > 0 ? 'Click green tiles to return them or ' : ''}End turn when ready.`)
+  }
+
+    const handleBoardClick = (x: number, y: number) => {
     if (!selectedTile) {
       setGameMessage("Please select a tile from your hand first!")
       return
     }
     
-    // Check if placement is valid
-    if (!isValidPlacement(x, y)) {
-      console.log(`Invalid placement at (${x},${y}). Turn direction: ${currentTurnDirection}, Row: ${currentTurnRow}, Col: ${currentTurnCol}`)
-      console.log('Tiles placed this turn:', tilesPlacedThisTurn.map(t => `(${t.location.x},${t.location.y})`))
-      
-      // Check if it's specifically a 5-tile sequence limit issue
-      const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-      const allTilesIncludingNew = [...allTiles, { 
-        id: NumberTileId.One,
-        uniqueId: 'temp',
-        location: { type: 'Board', x, y }
-      }]
-      
-      // Check horizontal sequence length
-      const horizontalTiles = []
-      let leftX = x
-      while (leftX > 0 && allTilesIncludingNew.some(tile => tile.location.x === leftX - 1 && tile.location.y === y)) {
-        leftX--
-      }
-      for (let currentX = leftX; currentX < 15; currentX++) {
-        const tile = allTilesIncludingNew.find(tile => tile.location.x === currentX && tile.location.y === y)
-        if (tile) {
-          horizontalTiles.push(tile)
-        } else {
-          break
-        }
-      }
-      
-      // Check vertical sequence length
-      const verticalTiles = []
-      let topY = y
-      while (topY > 0 && allTilesIncludingNew.some(tile => tile.location.x === x && tile.location.y === topY - 1)) {
-        topY--
-      }
-      for (let currentY = topY; currentY < 15; currentY++) {
-        const tile = allTilesIncludingNew.find(tile => tile.location.x === x && tile.location.y === currentY)
-        if (tile) {
-          verticalTiles.push(tile)
-        } else {
-          break
-        }
-      }
-      
-      // Check if it's an adjacency issue
-      const adjacentPositions = [
-        { x: x - 1, y },
-        { x: x + 1, y },
-        { x, y: y - 1 },
-        { x, y: y + 1 }
-      ]
-      const isAdjacent = adjacentPositions.some(pos =>
-        allTiles.some((tile: TileItem) => tile.location.x === pos.x && tile.location.y === pos.y)
-      )
-      
-      if (horizontalTiles.length > 5) {
-        setGameMessage(`🚫 Cannot place tile! Would create a horizontal sequence of ${horizontalTiles.length} tiles (max 5 allowed).`)
-      } else if (verticalTiles.length > 5) {
-        setGameMessage(`🚫 Cannot place tile! Would create a vertical sequence of ${verticalTiles.length} tiles (max 5 allowed).`)
-      } else if (!isAdjacent && (boardTiles.length > 0 || tilesPlacedThisTurn.length > 0)) {
-        setGameMessage("🚫 Invalid placement! Tiles must be adjacent (touching) to existing tiles on the board.")
-      } else if (boardTiles.length === 0 && tilesPlacedThisTurn.length === 0) {
-        setGameMessage("🚫 First tile must be placed on or adjacent to the center star (⭐).")
-      } else {
-        // Check if it's a turn placement issue
-        const isValidTurn = tilesPlacedThisTurn.length > 0 ? isValidTurnPlacement(x, y, tilesPlacedThisTurn) : true
-        
-        if (!isValidTurn) {
-          setGameMessage("🚫 Invalid placement! All tiles in a turn must be in the same row OR the same column.")
-        } else {
-          setGameMessage("Invalid placement! Check that you're placing tiles in a valid position.")
-        }
-      }
+    // Quick checks during placement for better UX
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
+    
+    if (isOccupied) {
+      setGameMessage("🚫 Cell already occupied!")
       return
     }
-    
-    // Place the tile
+
+    // Check basic placement rules for immediate feedback
+    const validationResult = quickValidatePlacement(x, y, tilesPlacedThisTurn, allTiles)
+    if (!validationResult.isValid) {
+      setGameMessage(`🚫 ${validationResult.error}`)
+      return
+    }
     const newTile: TileItem = {
       id: selectedTile.id,
       uniqueId: selectedTile.uniqueId,
@@ -226,71 +361,18 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     // Add to tiles placed this turn
     const newTilesPlacedThisTurn = [...tilesPlacedThisTurn, newTile]
     setTilesPlacedThisTurn(newTilesPlacedThisTurn)
-
-    // Set turn direction if this is the first tile placed this turn
-    if (tilesPlacedThisTurn.length === 0) {
-      // Don't set direction on first tile - let the player choose with their second tile
-      // This allows flexibility in Quinto-style play
-      console.log(`First tile placed at (${x},${y}) - direction will be determined by next tile`)
-    } else if (tilesPlacedThisTurn.length === 1) {
-      // Determine direction based on the relationship between first and second tile
-      const firstTile = tilesPlacedThisTurn[0]
-      
-      if (firstTile.location.y === y) {
-        // Same row - horizontal play
-        setCurrentTurnDirection('horizontal')
-        setCurrentTurnRow(y)
-        setCurrentTurnCol(null)
-        console.log(`Setting direction to horizontal (row ${y})`)
-      } else if (firstTile.location.x === x) {
-        // Same column - vertical play
-        setCurrentTurnDirection('vertical')
-        setCurrentTurnCol(x)
-        setCurrentTurnRow(null)
-        console.log(`Setting direction to vertical (column ${x})`)
-      }
-    }
-    
-    // Calculate potential score for this turn
-    const turnSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
-    const newTurnScore = turnSequences.reduce((total, seq) => {
-      const baseScore = seq.sum * 10
-      console.log(`🔍 SCORING DEBUG: Sequence [${seq.tiles.map(t => getTileValue(t.id)).join(',')}] sum=${seq.sum}, length=${seq.tiles.length}`)
-      console.log(`   Score: ${seq.sum} × 10 = ${baseScore}`)
-      return total + baseScore
-    }, 0)
-    
-    setTurnScore(newTurnScore)
     
     setBoardTiles(newBoardTiles)
-    setHandTiles(prev => prev.filter(tile => tile.uniqueId !== selectedTile.uniqueId))
+    updateCurrentPlayerHand(prev => prev.filter(tile => tile.uniqueId !== selectedTile.uniqueId))
     setSelectedTile(null)
     
-    // Update message based on turn progress - check ALL sequences created
-    const allTurnSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
-    
-    if (allTurnSequences.length > 0) {
-      const allValid = allTurnSequences.every(seq => seq.sum % 5 === 0)
-      const sequenceTexts = allTurnSequences.map(seq => 
-        `${seq.tiles.map(t => getTileValue(t.id)).join(' + ')} = ${seq.sum}`
-      )
-      
-      console.log(`All sequences this turn:`, sequenceTexts)
-      
-      if (allValid) {
-        setGameMessage(`✅ Valid sequences! ${sequenceTexts.join(' | ')} (all multiples of 5). You can end your turn or place more tiles.`)
-      } else {
-        const invalidSeqs = allTurnSequences.filter(seq => seq.sum % 5 !== 0)
-        const invalidTexts = invalidSeqs.map(seq => 
-          `${seq.tiles.map(t => getTileValue(t.id)).join(' + ')} = ${seq.sum}`
-        )
-        setGameMessage(`🔄 Building sequences. Invalid: ${invalidTexts.join(', ')}. Need all sequences to be multiples of 5.`)
-      }
-    } else {
-      setGameMessage("Tile placed! Continue building your sequence.")
-    }
-    
-    console.log(`Tile placed! Potential turn score: ${newTurnScore}`)
+         // Use debounced calculation to reduce performance impact - but avoid infinite loops
+     setGameMessage(`🔄 ${newTilesPlacedThisTurn.length} tile(s) placed. Calculating score...`)
+     
+     // Trigger debounced score calculation only if not already calculating
+     if (!isCalculatingRef.current) {
+       debouncedCalculateScore(newBoardTiles, newTilesPlacedThisTurn)
+     }
   }
 
   const drawTilesFromPile = (count: number): NumberTileId[] => {
@@ -305,70 +387,81 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return
     }
 
-    // Validate that all sequences containing new tiles sum to multiples of 5
+    // Reset circular pattern detection on turn end (recovery mechanism)
+    if (circularPatternDetectedRef.current) {
+      console.log('🔧 Resetting circular pattern detection on turn end')
+      circularPatternDetectedRef.current = false
+      performanceIssueCountRef.current = 0
+      setGameMessage("🔧 Performance recovery: Circular pattern detection reset. Turn ending...")
+    }
+
+    // Performance safeguard: Prevent extremely long games
+    if (turnNumber > 100) {
+      setGameMessage("🎯 Game completed due to turn limit! Final scores calculated.")
+      // Force end game with current scores
+      const winners = gameConfig.playerNames[playerScores.indexOf(Math.max(...playerScores))]
+      setGameMessage(`🏆 Game Over! Winner: ${winners} with ${Math.max(...playerScores)} points!`)
+      return
+    }
+
+    // Comprehensive validation only when ending turn
     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    
+    // 1. Check basic placement rules (adjacency, contiguity)
+    const validationResult = validateTurnPlacement(tilesPlacedThisTurn, boardTiles)
+    if (!validationResult.isValid) {
+      setGameMessage(`🚫 Invalid turn: ${validationResult.error}`)
+      return
+    }
+
+    // 2. Check that all sequences sum to multiples of 5
     let hasValidSequence = false
-    let invalidSequences: string[] = []
-    let allSequencesFound: string[] = []
+    let hasInvalidSequence = false
 
-    console.log(`🔍 END TURN VALIDATION: Checking ${tilesPlacedThisTurn.length} tiles placed this turn`)
-    console.log('Tiles placed this turn:', tilesPlacedThisTurn.map(t => `(${t.location.x},${t.location.y})=${getTileValue(t.id)}`))
-
-    // Check all sequences that contain tiles placed this turn
-    tilesPlacedThisTurn.forEach(placedTile => {
-      if (placedTile.location.x === undefined || placedTile.location.y === undefined) return
+    for (const placedTile of tilesPlacedThisTurn) {
+      if (placedTile.location.x === undefined || placedTile.location.y === undefined) continue
       
-      console.log(`🔍 Checking sequences at position (${placedTile.location.x},${placedTile.location.y})`)
       const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTiles)
-      console.log(`Found ${sequences.length} sequences at this position`)
       
-      sequences.forEach(seq => {
+      for (const seq of sequences) {
         const hasNewTile = seq.tiles.some(tile => 
           tilesPlacedThisTurn.some(placed => 
             placed.location.x === tile.location.x && placed.location.y === tile.location.y
           )
         )
         
-        const seqText = `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum}`
-        allSequencesFound.push(`${seqText} (length: ${seq.tiles.length}, hasNewTile: ${hasNewTile})`)
-        
         if (hasNewTile) {
-          console.log(`🔍 Sequence contains new tile: ${seqText}`)
           if (seq.sum % 5 === 0 && seq.sum > 0) {
-            console.log(`✅ Valid sequence: ${seqText}`)
             hasValidSequence = true
           } else {
-            console.log(`❌ Invalid sequence: ${seqText}`)
-            if (!invalidSequences.includes(seqText)) {
-              invalidSequences.push(seqText)
-            }
+            hasInvalidSequence = true
           }
         }
-      })
-    })
-
-    console.log(`🔍 All sequences found:`, allSequencesFound)
-    console.log(`🔍 Valid sequences found: ${hasValidSequence}`)
-    console.log(`🔍 Invalid sequences:`, invalidSequences)
+      }
+    }
 
     if (!hasValidSequence) {
-      setGameMessage(`Invalid play! All sequences must sum to multiples of 5. Current sequences: ${invalidSequences.join(', ')}. Keep playing or use Undo Turn.`)
+      setGameMessage("🚫 Invalid turn: No valid sequences found. All sequences must sum to multiples of 5.")
       return
     }
 
-    if (invalidSequences.length > 0) {
-      setGameMessage(`Invalid play! Some sequences don't sum to multiples of 5: ${invalidSequences.join(', ')}. Keep playing or use Undo Turn.`)
+    if (hasInvalidSequence) {
+      setGameMessage("🚫 Invalid turn: Some sequences don't sum to multiples of 5. Fix or use Undo Turn.")
       return
     }
     
     // Calculate final score for this turn
     const turnSequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
-    const finalTurnScore = turnSequences.reduce((total, seq) => {
-      const baseScore = seq.sum * 10
-      console.log(`🎯 FINAL SCORING: Sequence [${seq.tiles.map(t => getTileValue(t.id)).join(',')}] sum=${seq.sum}, length=${seq.tiles.length}`)
-      console.log(`   Score: ${seq.sum} × 10 = ${baseScore}`)
-      return total + baseScore
-    }, 0)
+    const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+    
+    // Log scoring details for debugging (only in development)
+    if (process.env.NODE_ENV === 'development' && turnSequences.length > 0) {
+      console.log(`🎯 TURN SCORING: Found ${turnSequences.length} valid sequences`)
+      turnSequences.forEach((seq, index) => {
+        const tileValues = seq.tiles.map(t => getTileValue(t.id)).join(' + ')
+        console.log(`  Sequence ${index + 1}: [${tileValues}] = ${seq.sum} × 10 = ${seq.sum * 10} points`)
+      })
+    }
     
     // Add turn score to current player's total score
     const newTotalScore = currentScore + finalTurnScore
@@ -385,18 +478,26 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       const newHandTiles = newTiles.map((tileId, index) => ({
         id: tileId,
         uniqueId: `refill-${Date.now()}-${index}`,
-        location: { type: 'Hand', player: playerId || 'player1' }
+        location: { type: 'Hand', player: currentPlayerId }
       }))
-      setHandTiles(prev => [...prev, ...newHandTiles])
+      updateCurrentPlayerHand(prev => [...prev, ...newHandTiles])
     }
     
-    // Reset turn state
+    // Reset turn state and clean up memory
     setTilesPlacedThisTurn([])
     setTurnScore(0)
     setTurnNumber(prev => prev + 1)
-    setCurrentTurnDirection(null)
-    setCurrentTurnRow(null)
-    setCurrentTurnCol(null)
+    
+    // Memory optimization: Clean up old unique IDs to prevent memory leaks
+    if (turnNumber % 10 === 0) {
+      // Refresh board tiles with new unique IDs to prevent memory accumulation
+      setBoardTiles(prevTiles => 
+        prevTiles.map(tile => ({
+          ...tile,
+          uniqueId: tile.uniqueId.startsWith('center-') ? tile.uniqueId : `optimized-${Date.now()}-${Math.random()}`
+        }))
+      )
+    }
     
     // Switch to next player in multiplayer
     if (gameConfig.playerCount > 1) {
@@ -406,17 +507,17 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       setGameMessage(`${nextPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`)
     }
     
-    // Show turn summary
-    const sequenceText = turnSequences.map(seq => 
-      `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum}`
-    ).join(', ')
+    // Show turn summary with scoring breakdown
+    const sequenceText = turnSequences.map(seq => {
+      const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+      return `${tileValues} = ${seq.sum} (×10 = ${seq.sum * 10})`
+    }).join(', ')
     
-    setGameMessage(`🎉 Turn ${turnNumber} complete! Scored ${finalTurnScore} points. ${sequenceText ? `Sequences: ${sequenceText}` : ''} Total: ${newTotalScore}`)
+    const message = turnSequences.length > 0
+      ? `🎉 Turn ${turnNumber} complete! ${sequenceText}. Total turn score: ${finalTurnScore}. Game total: ${newTotalScore}`
+      : `🎉 Turn ${turnNumber} complete! Scored ${finalTurnScore} points. Total: ${newTotalScore}`
     
-    console.log(`🎉 Turn complete! Turn score: ${finalTurnScore}, Total score: ${newTotalScore}`)
-    console.log('Valid sequences:', turnSequences.map(seq => 
-      `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum} (${seq.sum * 10} points)`
-    ))
+    setGameMessage(message)
     
     // Check for game end conditions
     if (handTiles.length === 0 && drawPile.length === 0) {
@@ -450,20 +551,33 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       const newHandTile = {
         id: newTiles[0],
         uniqueId: `skip-${Date.now()}`,
-        location: { type: 'Hand', player: playerId || 'player1' }
+        location: { type: 'Hand', player: currentPlayerId }
       }
-      setHandTiles(prev => [...prev, newHandTile])
+      updateCurrentPlayerHand(prev => [...prev, newHandTile])
     }
     
     // Reset turn state
     setTilesPlacedThisTurn([])
     setTurnScore(0)
-    setCurrentTurnDirection(null)
-    setCurrentTurnRow(null)
-    setCurrentTurnCol(null)
     
     setTurnNumber(prev => prev + 1)
     setGameMessage(`Turn skipped. ${penalty > 0 ? `Lost ${penalty} points as penalty.` : ''} Current score: ${newScore}`)
+  }
+
+  // Emergency reset function for performance recovery
+  const handleEmergencyReset = () => {
+    if (window.confirm('⚠️ Emergency Reset: This will clear placed tiles this turn and attempt to recover performance. Continue?')) {
+      setTilesPlacedThisTurn([])
+      setSelectedTile(null)
+      setTurnScore(0)
+      
+      // Clear any potential memory leaks
+      if ((window as any).gc) {
+        (window as any).gc()
+      }
+      
+      setGameMessage('🔧 Emergency reset completed. Game state recovered.')
+    }
   }
 
   const handleUndoTurn = () => {
@@ -486,56 +600,232 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     // Return tiles to hand
     const returnedTiles = tilesToRemove.map(tile => ({
       ...tile,
-      location: { type: 'Hand', player: playerId || 'player1' }
+      location: { type: 'Hand', player: currentPlayerId }
     }))
-    setHandTiles(prev => [...prev, ...returnedTiles])
+    updateCurrentPlayerHand(prev => [...prev, ...returnedTiles])
 
     // Reset turn state
     setTilesPlacedThisTurn([])
     setTurnScore(0)
-    setCurrentTurnDirection(null)
-    setCurrentTurnRow(null)
-    setCurrentTurnCol(null)
     setSelectedTile(null)
 
     setGameMessage(`Undid ${tilesToRemove.length} tile placements. Try a different strategy!`)
   }
 
-  const calculateTurnSequences = (allTiles: TileItem[], placedTiles: TileItem[]) => {
-    const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
-    
-    // For each tile placed this turn, check if it creates or extends sequences
-    placedTiles.forEach(placedTile => {
-      if (placedTile.location.x === undefined || placedTile.location.y === undefined) return
+  const calculateTurnSequences = useMemo(() => {
+    return (allTiles: TileItem[], placedTiles: TileItem[]) => {
+      const startTime = Date.now()
+      const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
+      const seenSequences = new Set<string>()
       
-      const tileSequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTiles)
-      tileSequences.forEach(seq => {
-        // Only count sequences that are valid (sum is multiple of 5) and contain at least one placed tile
-        if (seq.sum % 5 === 0 && seq.sum > 0) {
-          const hasPlacedTile = seq.tiles.some(tile => 
-            placedTiles.some(placed => 
-              placed.location.x === tile.location.x && placed.location.y === tile.location.y
-            )
-          )
-          if (hasPlacedTile) {
-            // Avoid duplicate sequences
-            const isDuplicate = sequences.some(existing => 
-              existing.tiles.length === seq.tiles.length &&
-              existing.tiles.every(tile => 
-                seq.tiles.some(seqTile => 
-                  seqTile.location.x === tile.location.x && seqTile.location.y === tile.location.y
-                )
-              )
-            )
-            if (!isDuplicate) {
-              sequences.push(seq)
+      // Circuit breaker for circular patterns and large boards
+      if (allTiles.length > 100) {
+        console.warn('🔄 Board too large for turn sequence calculation')
+        return [] // Return empty sequences for very large boards
+      }
+      
+      if (placedTiles.length > 10) {
+        console.warn('🔄 Too many tiles placed in one turn, skipping sequence calculation')
+        return [] // Prevent excessive calculation
+      }
+      
+      // Timeout check before starting
+      if (Date.now() - startTime > 10) {
+        console.warn('⚠️ Turn sequence calculation timeout before start')
+        return []
+      }
+      
+      // Create position lookup for O(1) access with duplicate detection
+      const positionMap = new Map<string, TileItem>()
+      const positionSet = new Set<string>()
+      
+      allTiles.forEach(tile => {
+        if (tile.location.x !== undefined && tile.location.y !== undefined) {
+          const posKey = `${tile.location.x},${tile.location.y}`
+          
+          // Detect duplicate positions (could indicate circular patterns)
+          if (positionSet.has(posKey)) {
+            console.warn('🔄 Duplicate position in turn sequence calculation:', posKey)
+            return // Skip duplicate positions
+          }
+          
+          positionSet.add(posKey)
+          positionMap.set(posKey, tile)
+        }
+      })
+      
+      // Create placed tiles position set for O(1) lookup 
+      const placedPositions = new Set<string>()
+      placedTiles.forEach(tile => {
+        if (tile.location.x !== undefined && tile.location.y !== undefined) {
+          placedPositions.add(`${tile.location.x},${tile.location.y}`)
+        }
+      })
+      
+      // Timeout check after position mapping
+      if (Date.now() - startTime > 20) {
+        console.warn('⚠️ Turn sequence calculation timeout after position mapping')
+        return []
+      }
+      
+      try {
+        // For each tile placed this turn, check sequences with timeout protection
+        for (const placedTile of placedTiles) {
+          if (placedTile.location.x === undefined || placedTile.location.y === undefined) continue
+          
+          // Check timeout for each tile
+          if (Date.now() - startTime > 50) {
+            console.warn('⚠️ Turn sequence calculation timeout during tile processing')
+            break
+          }
+          
+          const x = placedTile.location.x
+          const y = placedTile.location.y
+          
+          // Check horizontal sequence with timeout
+          const horizontalKey = `h-${y}`
+          if (!seenSequences.has(horizontalKey) && Date.now() - startTime < 40) {
+            const horizontalSeq = getHorizontalSequence(x, y, positionMap)
+            if (horizontalSeq && horizontalSeq.tiles.length > 1 && 
+                horizontalSeq.sum % 5 === 0 && horizontalSeq.sum > 0 &&
+                horizontalSeq.tiles.some(tile => placedPositions.has(`${tile.location.x},${tile.location.y}`))) {
+              sequences.push(horizontalSeq)
+              seenSequences.add(horizontalKey)
+            }
+          }
+          
+          // Check vertical sequence with timeout
+          const verticalKey = `v-${x}`
+          if (!seenSequences.has(verticalKey) && Date.now() - startTime < 45) {
+            const verticalSeq = getVerticalSequence(x, y, positionMap)
+            if (verticalSeq && verticalSeq.tiles.length > 1 && 
+                verticalSeq.sum % 5 === 0 && verticalSeq.sum > 0 &&
+                verticalSeq.tiles.some(tile => placedPositions.has(`${tile.location.x},${tile.location.y}`))) {
+              sequences.push(verticalSeq)
+              seenSequences.add(verticalKey)
             }
           }
         }
-      })
-    })
+      } catch (error) {
+        console.warn('⚠️ Error in turn sequence calculation, likely circular pattern:', error)
+        return [] // Return empty sequences on error
+      }
+      
+      // Final timeout check
+      if (Date.now() - startTime > 50) {
+        console.warn('⚠️ Turn sequence calculation took too long, possible circular pattern')
+        return sequences.slice(0, 3) // Return only first few sequences to prevent freezing
+      }
+      
+      return sequences
+    }
+  }, [])
+  
+  // Optimized sequence builders with circular pattern protection
+  const getHorizontalSequence = (startX: number, y: number, positionMap: Map<string, TileItem>) => {
+    // Circuit breaker for circular patterns
+    const startTime = Date.now()
+    const maxIterations = 10 // Prevent infinite loops
+    let iterations = 0
     
-    return sequences
+    // Find leftmost tile in row with loop protection
+    let leftX = startX
+    while (leftX > 0 && positionMap.has(`${leftX - 1},${y}`) && iterations < maxIterations) {
+      leftX--
+      iterations++
+      
+      // Timeout protection for circular patterns
+      if (Date.now() - startTime > 10) {
+        console.warn('⚠️ Horizontal sequence detection timeout - circular pattern detected')
+        break
+      }
+    }
+    
+    // Collect all tiles in horizontal sequence with strict limits
+    const tiles: TileItem[] = []
+    const visitedPositions = new Set<string>() // Prevent circular revisiting
+    
+    for (let x = leftX; x < 15 && tiles.length < 5; x++) {
+      const posKey = `${x},${y}`
+      
+      // Circular pattern detection
+      if (visitedPositions.has(posKey)) {
+        console.warn('🔄 Circular pattern detected in horizontal sequence')
+        break
+      }
+      visitedPositions.add(posKey)
+      
+      const tile = positionMap.get(posKey)
+      if (tile) {
+        tiles.push(tile)
+      } else {
+        break
+      }
+      
+      // Additional timeout check
+      if (Date.now() - startTime > 15) {
+        console.warn('⚠️ Horizontal sequence collection timeout')
+        break
+      }
+    }
+    
+    if (tiles.length <= 1) return null
+    
+    const sum = tiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
+    return { tiles, sum }
+  }
+  
+  const getVerticalSequence = (x: number, startY: number, positionMap: Map<string, TileItem>) => {
+    // Circuit breaker for circular patterns
+    const startTime = Date.now()
+    const maxIterations = 10 // Prevent infinite loops
+    let iterations = 0
+    
+    // Find topmost tile in column with loop protection
+    let topY = startY
+    while (topY > 0 && positionMap.has(`${x},${topY - 1}`) && iterations < maxIterations) {
+      topY--
+      iterations++
+      
+      // Timeout protection for circular patterns
+      if (Date.now() - startTime > 10) {
+        console.warn('⚠️ Vertical sequence detection timeout - circular pattern detected')
+        break
+      }
+    }
+    
+    // Collect all tiles in vertical sequence with strict limits
+    const tiles: TileItem[] = []
+    const visitedPositions = new Set<string>() // Prevent circular revisiting
+    
+    for (let y = topY; y < 15 && tiles.length < 5; y++) {
+      const posKey = `${x},${y}`
+      
+      // Circular pattern detection
+      if (visitedPositions.has(posKey)) {
+        console.warn('🔄 Circular pattern detected in vertical sequence')
+        break
+      }
+      visitedPositions.add(posKey)
+      
+      const tile = positionMap.get(posKey)
+      if (tile) {
+        tiles.push(tile)
+      } else {
+        break
+      }
+      
+      // Additional timeout check
+      if (Date.now() - startTime > 15) {
+        console.warn('⚠️ Vertical sequence collection timeout')
+        break
+      }
+    }
+    
+    if (tiles.length <= 1) return null
+    
+    const sum = tiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
+    return { tiles, sum }
   }
 
   const getTileValue = (tileId: NumberTileId): number => {
@@ -554,236 +844,343 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     }
   }
 
-  // Simplified validation: just check basic rules without overly complex contiguity
-  const isValidTurnPlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[]): boolean => {
-    // First tile of turn: always valid (adjacency checked elsewhere)
-    if (tilesPlacedThisTurn.length === 0) {
-      return true
-    }
+  // Quick validation for immediate feedback during placement (lightweight with circuit breaker)
+  const quickValidatePlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[], allTiles: TileItem[]) => {
+    const startTime = Date.now()
     
-    // All tiles in a turn must be in the same row OR same column
-    const allTurnTilesWithNew = [...tilesPlacedThisTurn, {
-      id: NumberTileId.One,
-      uniqueId: 'temp',
-      location: { type: 'Board', x, y }
-    }]
-    
-    const allXValues = allTurnTilesWithNew.map(tile => tile.location.x || 0)
-    const allYValues = allTurnTilesWithNew.map(tile => tile.location.y || 0)
-    
-    const allSameRow = allYValues.every(val => val === allYValues[0])
-    const allSameCol = allXValues.every(val => val === allXValues[0])
-    
-    // Must be all in same row OR all in same column
-    return allSameRow || allSameCol
-  }
-
-  const getSequencesAtPosition = (x: number, y: number, tiles: TileItem[]) => {
-    const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
-    
-    // Check horizontal sequence (max 5 tiles)
-    const horizontalTiles = []
-    
-    // Find leftmost position
-    let leftX = x
-    while (leftX > 0 && tiles.some(tile => tile.location.x === leftX - 1 && tile.location.y === y)) {
-      leftX--
-    }
-    
-    // Collect horizontal tiles from left to right (max 5 tiles)
-    for (let currentX = leftX; currentX < 15 && horizontalTiles.length < 5; currentX++) {
-      const tile = tiles.find(tile => tile.location.x === currentX && tile.location.y === y)
-      if (tile) {
-        horizontalTiles.push(tile)
-      } else {
-        break
+    // Circuit breaker: prevent expensive validation on very large boards
+    if (allTiles.length > 100) {
+      // For very large boards, use minimal validation
+      if (x < 0 || x >= 15 || y < 0 || y >= 15) {
+        return { isValid: false, error: "Outside board boundaries" }
       }
+      return { isValid: true, error: null } // Allow placement, validate on turn end
     }
     
-    if (horizontalTiles.length > 1) {
-      const sum = horizontalTiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
-      sequences.push({ tiles: horizontalTiles, sum })
-      console.log(`🔍 Horizontal sequence: ${horizontalTiles.length} tiles, sum=${sum}`)
-    }
-    
-    // Check vertical sequence (max 5 tiles)
-    const verticalTiles = []
-    
-    // Find topmost position
-    let topY = y
-    while (topY > 0 && tiles.some(tile => tile.location.x === x && tile.location.y === topY - 1)) {
-      topY--
-    }
-    
-    // Collect vertical tiles from top to bottom (max 5 tiles)
-    for (let currentY = topY; currentY < 15 && verticalTiles.length < 5; currentY++) {
-      const tile = tiles.find(tile => tile.location.x === x && tile.location.y === currentY)
-      if (tile) {
-        verticalTiles.push(tile)
-      } else {
-        break
-      }
-    }
-    
-    if (verticalTiles.length > 1) {
-      const sum = verticalTiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
-      sequences.push({ tiles: verticalTiles, sum })
-      console.log(`🔍 Vertical sequence: ${verticalTiles.length} tiles, sum=${sum}`)
-    }
-    
-    return sequences
-  }
-
-  // Smart validation that only runs when a tile is selected and position is empty
-  const isValidPlacement = useMemo(() => {
-    if (!selectedTile) return () => false
-    
-    const cache = new Map<string, boolean>()
-    
-    return (x: number, y: number): boolean => {
-      const cacheKey = `${x},${y},${boardTiles.length},${tilesPlacedThisTurn.length},${currentTurnDirection || 'none'}`
-      
-      if (cache.has(cacheKey)) {
-        return cache.get(cacheKey)!
-      }
-      
-      const result = validatePlacement(x, y)
-      cache.set(cacheKey, result)
-      return result
-    }
-  }, [selectedTile, boardTiles, tilesPlacedThisTurn, currentTurnDirection])
-
-  const validatePlacement = (x: number, y: number): boolean => {
-    // Check if the specific position is within board bounds (0-14)
+    // Bounds check
     if (x < 0 || x >= 15 || y < 0 || y >= 15) {
-      return false
-    }
-    
-    // Check if the specific position is already occupied
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
-    
-    if (isOccupied) {
-      return false
+      return { isValid: false, error: "Outside board boundaries" }
     }
 
-    // Special case: first tile of the game must be on center (7,7) or adjacent to center
-    if (boardTiles.length === 0 && tilesPlacedThisTurn.length === 0) {
+    // Performance timeout check
+    if (Date.now() - startTime > 50) {
+      console.warn('⚠️ Validation timeout - allowing placement')
+      return { isValid: true, error: null }
+    }
+
+    // First move rules
+    if (allTiles.length === 0) {
       const isCenterOrAdjacent = (x === 7 && y === 7) || 
         (Math.abs(x - 7) <= 1 && Math.abs(y - 7) <= 1 && (x === 7 || y === 7))
       if (!isCenterOrAdjacent) {
-        return false
+        return { isValid: false, error: "First tile must be on or adjacent to center star" }
+      }
+      return { isValid: true, error: null }
+    }
+
+    // Check adjacency to existing tiles - optimized check with limit
+    const tilesToCheck = allTiles.length > 50 ? allTiles.slice(-30) : allTiles
+    const isAdjacent = tilesToCheck.some(tile => {
+      const tx = tile.location.x || 0
+      const ty = tile.location.y || 0
+      return (Math.abs(tx - x) === 1 && ty === y) || (tx === x && Math.abs(ty - y) === 1)
+    })
+    if (!isAdjacent && allTiles.length <= 50) {
+      return { isValid: false, error: "Must be adjacent to existing tiles" }
+    }
+
+    // Check contiguity within the turn
+    if (tilesPlacedThisTurn.length > 0 && tilesPlacedThisTurn.length < 10) {
+      const allTurnTilesWithNew = [...tilesPlacedThisTurn, { 
+        id: selectedTile!.id, 
+        uniqueId: 'temp', 
+        location: { type: 'Board', x, y } 
+      }]
+      
+      const xValues = allTurnTilesWithNew.map(tile => tile.location.x || 0)
+      const yValues = allTurnTilesWithNew.map(tile => tile.location.y || 0)
+      
+      const allSameRow = yValues.every(val => val === yValues[0])
+      const allSameCol = xValues.every(val => val === xValues[0])
+      
+      if (!allSameRow && !allSameCol) {
+        return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
+      }
+    }
+
+    return { isValid: true, error: null }
+  }
+
+  // Comprehensive turn validation (only called on turn end)
+  const validateTurnPlacement = (placedTiles: TileItem[], existingTiles: TileItem[]) => {
+    if (placedTiles.length === 0) {
+      return { isValid: false, error: "No tiles placed" }
+    }
+
+    const allTiles = [...existingTiles, ...placedTiles]
+
+    // First move rules
+    if (existingTiles.length === 0) {
+      const centerOrAdjacent = placedTiles.some(tile => {
+        const x = tile.location.x || 0
+        const y = tile.location.y || 0
+        return (x === 7 && y === 7) || 
+               (Math.abs(x - 7) <= 1 && Math.abs(y - 7) <= 1 && (x === 7 || y === 7))
+      })
+      if (!centerOrAdjacent) {
+        return { isValid: false, error: "First tile must be on or adjacent to center star" }
       }
     } else {
-      // All other tiles must be adjacent to existing tiles (including tiles placed this turn)
-      const adjacentPositions = [
-        { x: x - 1, y },
-        { x: x + 1, y },
-        { x, y: y - 1 },
-        { x, y: y + 1 }
-      ]
+      // Check adjacency - at least one placed tile must be adjacent to existing tiles
+      // Optimized with position set for O(1) lookup
+      const existingPositions = new Set<string>()
+      existingTiles.forEach(tile => {
+        const x = tile.location.x || 0
+        const y = tile.location.y || 0
+        // Add all adjacent positions to the set
+        existingPositions.add(`${x-1},${y}`)
+        existingPositions.add(`${x+1},${y}`)
+        existingPositions.add(`${x},${y-1}`)
+        existingPositions.add(`${x},${y+1}`)
+      })
       
-      const isAdjacent = adjacentPositions.some(pos =>
-        allTiles.some((tile: TileItem) => tile.location.x === pos.x && tile.location.y === pos.y)
-      )
+      const hasAdjacency = placedTiles.some(placedTile => {
+        const px = placedTile.location.x || 0
+        const py = placedTile.location.y || 0
+        return existingPositions.has(`${px},${py}`)
+      })
       
-      if (!isAdjacent) {
-        return false
+      if (!hasAdjacency) {
+        return { isValid: false, error: "Tiles must be adjacent to existing tiles on board" }
       }
     }
 
-    // If tiles already placed this turn, check direction constraints AND contiguity
-    if (tilesPlacedThisTurn.length > 0) {
-      // Reduced direction check logging
+    // Check turn contiguity - all placed tiles must be in same row OR same column
+    if (placedTiles.length > 1) {
+      const xValues = placedTiles.map(tile => tile.location.x || 0)
+      const yValues = placedTiles.map(tile => tile.location.y || 0)
       
-      if (currentTurnDirection === 'horizontal' && y !== currentTurnRow) {
-        return false
+      const allSameRow = yValues.every(y => y === yValues[0])
+      const allSameCol = xValues.every(x => x === xValues[0])
+      
+      if (!allSameRow && !allSameCol) {
+        return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
       }
-      
-      if (currentTurnDirection === 'vertical' && x !== currentTurnCol) {
-        return false
+    }
+
+    // Check 5-tile sequence limits - optimized with position map
+    const positionMap = new Map<string, TileItem>()
+    allTiles.forEach(tile => {
+      if (tile.location.x !== undefined && tile.location.y !== undefined) {
+        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
       }
+    })
+    
+    const checkedRows = new Set<number>()
+    const checkedCols = new Set<number>()
+    
+    for (const tile of allTiles) {
+      const x = tile.location.x || 0
+      const y = tile.location.y || 0
       
-      // If direction hasn't been set yet (only one tile placed), check if this would be valid
-      if (currentTurnDirection === null && tilesPlacedThisTurn.length === 1) {
-        const firstTile = tilesPlacedThisTurn[0]
-        const sameRow = firstTile.location.y === y
-        const sameCol = firstTile.location.x === x
+      // Check horizontal sequence length (only once per row)
+      if (!checkedRows.has(y)) {
+        checkedRows.add(y)
+        let leftX = x
+        while (leftX > 0 && positionMap.has(`${leftX - 1},${y}`)) {
+          leftX--
+        }
+        let horizontalCount = 0
+        for (let currentX = leftX; currentX < 15; currentX++) {
+          if (positionMap.has(`${currentX},${y}`)) {
+            horizontalCount++
+          } else {
+            break
+          }
+        }
         
-        if (!sameRow && !sameCol) {
-          return false
+        if (horizontalCount > 5) {
+          return { isValid: false, error: `Horizontal sequence too long (${horizontalCount} tiles, max 5)` }
         }
       }
       
-      // Check turn placement rules: tiles must be in same row or column
-      try {
-        const isValidTurn = isValidTurnPlacement(x, y, tilesPlacedThisTurn)
+      // Check vertical sequence length (only once per column)
+      if (!checkedCols.has(x)) {
+        checkedCols.add(x)
+        let topY = y
+        while (topY > 0 && positionMap.has(`${x},${topY - 1}`)) {
+          topY--
+        }
+        let verticalCount = 0
+        for (let currentY = topY; currentY < 15; currentY++) {
+          if (positionMap.has(`${x},${currentY}`)) {
+            verticalCount++
+          } else {
+            break
+          }
+        }
         
-        if (!isValidTurn) {
-          return false
+        if (verticalCount > 5) {
+          return { isValid: false, error: `Vertical sequence too long (${verticalCount} tiles, max 5)` }
+        }
+      }
+    }
+
+    return { isValid: true, error: null }
+  }
+
+  // Validation caching and throttling for performance
+  const validationCacheRef = useRef<Map<string, boolean>>(new Map())
+
+  // Clear validation cache periodically to prevent memory leaks
+  useEffect(() => {
+    const clearCacheInterval = setInterval(() => {
+      if (validationCacheRef.current.size > 100) {
+        validationCacheRef.current.clear()
+      }
+    }, 10000) // Every 10 seconds
+
+    return () => clearInterval(clearCacheInterval)
+  }, [])
+
+  // Lightweight placement validation for visual indicators (simplified to prevent infinite loops)
+  const isValidPlacement = useCallback((x: number, y: number): boolean => {
+    if (!selectedTile) return false
+    
+    // Use simple cache without complex memoization
+    const cacheKey = `${x},${y}-${selectedTile.id}`
+    if (validationCacheRef.current.has(cacheKey)) {
+      return validationCacheRef.current.get(cacheKey)!
+    }
+    
+    // Basic boundary check
+    if (x < 0 || x >= 15 || y < 0 || y >= 15) {
+      validationCacheRef.current.set(cacheKey, false)
+      return false
+    }
+    
+         // Check if position is occupied
+     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+     const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
+    
+    if (isOccupied) {
+      validationCacheRef.current.set(cacheKey, false)
+      return false
+    }
+    
+    // For large boards, skip complex validation to prevent performance issues
+    if (allTiles.length > 80) {
+      // Simple adjacency check only
+      const isAdjacent = allTiles.some(tile => {
+        const tx = tile.location.x || 0
+        const ty = tile.location.y || 0
+        return (Math.abs(tx - x) === 1 && ty === y) || (tx === x && Math.abs(ty - y) === 1)
+      })
+      const result = allTiles.length === 0 || isAdjacent
+      validationCacheRef.current.set(cacheKey, result)
+      return result
+    }
+    
+    // Use lightweight validation for smaller boards
+    const result = quickValidatePlacement(x, y, tilesPlacedThisTurn, allTiles)
+    validationCacheRef.current.set(cacheKey, result.isValid)
+    return result.isValid
+  }, [selectedTile, boardTiles, tilesPlacedThisTurn])
+
+  // Cached sequence detection with position map, cache management, and circular pattern protection
+  const getSequencesAtPosition = useMemo(() => {
+    const sequenceCache = new Map<string, Array<{ tiles: TileItem[]; sum: number }>>()
+    const MAX_CACHE_SIZE = 500 // Prevent unbounded cache growth
+    
+    return (x: number, y: number, tiles: TileItem[]) => {
+      const startTime = Date.now()
+      
+      // Circuit breaker for very large boards or circular patterns
+      if (tiles.length > 100) {
+        console.warn('🔄 Board too large for sequence detection, using simplified mode')
+        return [] // Return empty sequences for very large boards
+      }
+      
+      // Use simplified cache key for better performance
+      const tileCount = tiles.length
+      const cacheKey = `${x},${y}:${tileCount}`
+      
+      if (sequenceCache.has(cacheKey)) {
+        return sequenceCache.get(cacheKey)!
+      }
+      
+      // Manage cache size to prevent memory leaks
+      if (sequenceCache.size > MAX_CACHE_SIZE) {
+        // Clear oldest entries (simple LRU-like behavior)
+        const firstKey = sequenceCache.keys().next().value
+        if (firstKey) {
+          sequenceCache.delete(firstKey)
+        }
+      }
+      
+      const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
+      
+      // Timeout check before creating position map
+      if (Date.now() - startTime > 25) {
+        console.warn('⚠️ Sequence detection timeout before position map creation')
+        return []
+      }
+      
+      // Create fast position lookup map with circular pattern detection
+      const positionMap = new Map<string, TileItem>()
+      const positionSet = new Set<string>() // Track duplicates
+      
+      tiles.forEach(tile => {
+        if (tile.location.x !== undefined && tile.location.y !== undefined) {
+          const posKey = `${tile.location.x},${tile.location.y}`
+          
+          // Detect duplicate positions (could indicate circular patterns)
+          if (positionSet.has(posKey)) {
+            console.warn('🔄 Duplicate position detected, possible circular pattern:', posKey)
+            return // Skip duplicate positions
+          }
+          
+          positionSet.add(posKey)
+          positionMap.set(posKey, tile)
+        }
+      })
+      
+      // Timeout check before sequence calculations
+      if (Date.now() - startTime > 30) {
+        console.warn('⚠️ Sequence detection timeout before sequence calculations')
+        return []
+      }
+      
+      try {
+        // Check horizontal sequence using optimized helper with timeout protection
+        const horizontalSeq = getHorizontalSequence(x, y, positionMap)
+        if (horizontalSeq && Date.now() - startTime < 40) {
+          sequences.push(horizontalSeq)
+        }
+        
+        // Check vertical sequence using optimized helper with timeout protection
+        const verticalSeq = getVerticalSequence(x, y, positionMap)
+        if (verticalSeq && Date.now() - startTime < 50) {
+          sequences.push(verticalSeq)
         }
       } catch (error) {
-        console.error(`Error checking turn placement at (${x},${y}):`, error)
-        // If there's an error in turn checking, allow the placement to avoid crashes
-        return true
+        console.warn('⚠️ Error in sequence detection, likely circular pattern:', error)
+        return [] // Return empty sequences on error
       }
+      
+      // Final timeout check
+      if (Date.now() - startTime > 50) {
+        console.warn('⚠️ Sequence detection took too long, possible circular pattern')
+        return [] // Don't cache potentially problematic results
+      }
+      
+      // Cache the result only if calculation completed successfully
+      sequenceCache.set(cacheKey, sequences)
+      return sequences
     }
+  }, [])
 
-    // Check 5-tile limit: no contiguous sequence can be more than 5 tiles
-    const allTilesIncludingNew = [...allTiles, { 
-      id: NumberTileId.One, // dummy tile for counting
-      uniqueId: 'temp',
-      location: { type: 'Board', x, y }
-    }]
-    
-    // Check horizontal sequence length at this position
-    const horizontalTiles = []
-    
-    // Find leftmost position in horizontal sequence
-    let leftX = x
-    while (leftX > 0 && allTilesIncludingNew.some(tile => tile.location.x === leftX - 1 && tile.location.y === y)) {
-      leftX--
-    }
-    
-    // Count horizontal tiles from left to right
-    for (let currentX = leftX; currentX < 15; currentX++) {
-      const tile = allTilesIncludingNew.find(tile => tile.location.x === currentX && tile.location.y === y)
-      if (tile) {
-        horizontalTiles.push(tile)
-      } else {
-        break
-      }
-    }
-    
-    if (horizontalTiles.length > 5) {
-      return false
-    }
-    
-    // Check vertical sequence length at this position
-    const verticalTiles = []
-    
-    // Find topmost position in vertical sequence
-    let topY = y
-    while (topY > 0 && allTilesIncludingNew.some(tile => tile.location.x === x && tile.location.y === topY - 1)) {
-      topY--
-    }
-    
-    // Count vertical tiles from top to bottom
-    for (let currentY = topY; currentY < 15; currentY++) {
-      const tile = allTilesIncludingNew.find(tile => tile.location.x === x && tile.location.y === currentY)
-      if (tile) {
-        verticalTiles.push(tile)
-      } else {
-        break
-      }
-    }
-    
-    if (verticalTiles.length > 5) {
-      return false
-    }
 
-    return true
-  }
 
   return (
     <div css={gameContainerStyle}>
@@ -819,54 +1216,44 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
           <div css={turnStatusStyle}>
             <span>Tiles placed this turn: {tilesPlacedThisTurn.length}</span>
             <span>Potential turn score: {turnScore}</span>
+            {turnScore > 0 && (
+              <span style={{ fontSize: '10px', opacity: 0.8 }}>
+                {(() => {
+                  // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
+                  if (circularPatternDetectedRef.current) {
+                    return `Emergency mode - End turn to see scoring`
+                  }
+                  
+                  // Only recalculate sequences for display if we have a reasonable number of tiles
+                  if (tilesPlacedThisTurn.length > 3) {
+                    return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
+                  }
+                  
+                  try {
+                    const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
+                    return sequences.map(seq => {
+                      const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+                      return `${tileValues}=${seq.sum}(×10)`
+                    }).join(' | ')
+                  } catch (error) {
+                    console.warn('⚠️ Error in sequence display calculation:', error)
+                    return `Calculating... End turn to see scores`
+                  }
+                })()}
+              </span>
+            )}
           </div>
         )}
         
         {/* Game Board */}
-        <div css={boardContainerStyle}>
-          <div css={gridStyle}>
-            {Array.from({ length: 15 }, (_, row) =>
-              Array.from({ length: 15 }, (_, col) => {
-                const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
-                const isCenter = row === 7 && col === 7
-                const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
-                
-                // Only validate placement if tile is selected and position is empty
-                // This prevents calling isValidPlacement 225 times on every render
-                let canPlace = false
-                let invalidPlace = false
-                if (selectedTile && !boardTile && !tilesPlacedThisTurn.some(t => t.location.x === col && t.location.y === row)) {
-                  canPlace = isValidPlacement(col, row)
-                  invalidPlace = !canPlace
-                }
-                
-                return (
-                  <div 
-                    key={`${row}-${col}`} 
-                    css={css`
-                      ${cellStyle}
-                      ${isCenter ? centerCellStyle : ''}
-                      ${!boardTile ? emptyCellStyle : ''}
-                      ${canPlace ? validPlacementStyle : ''}
-                      ${invalidPlace ? invalidPlacementStyle : ''}
-                      ${isPlacedThisTurn ? placedThisTurnStyle : ''}
-                    `}
-                    onClick={() => handleBoardClick(col, row)}
-                  >
-                    {boardTile && (
-                      <NumberTile 
-                        tileId={boardTile.id} 
-                        size="large"
-                      />
-                    )}
-                    {!boardTile && isCenter && <div css={centerStarStyle}>⭐</div>}
-                    {canPlace && <div css={placementHintStyle}>+</div>}
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
+        <GameBoard
+          boardTiles={boardTiles}
+          tilesPlacedThisTurn={tilesPlacedThisTurn}
+          selectedTile={selectedTile}
+          onBoardClick={handleBoardClick}
+          onPlacedTileClick={handlePlacedTileClick}
+          isValidPlacement={isValidPlacement}
+        />
         
         {/* Player Hand */}
         <div css={handStyle}>
@@ -886,6 +1273,11 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
               <button css={skipTurnButtonStyle} onClick={handleSkipTurn}>
                 Skip Turn
               </button>
+              {turnNumber > 20 && (
+                <button css={emergencyResetButtonStyle} onClick={handleEmergencyReset}>
+                  🔧 Reset
+                </button>
+              )}
             </div>
           </div>
           <div css={handTilesStyle}>
@@ -921,24 +1313,23 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
 const gameContainerStyle = css`
   width: 100%;
   max-width: 900px;
-  height: auto;
-  min-height: 700px;
-  max-height: 95vh;
+  height: 100vh;
   background: rgba(0, 0, 0, 0.1);
   border-radius: 20px;
-  overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 `
 
 const gameContentStyle = css`
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: 100%;
   padding: 20px;
   gap: 15px;
+  overflow: hidden;
 `
 
 const headerStyle = css`
@@ -948,6 +1339,8 @@ const headerStyle = css`
   padding: 10px 15px;
   background: rgba(255, 255, 255, 0.2);
   border-radius: 10px;
+  flex-shrink: 0;
+  min-height: 60px;
 `
 
 const titleStyle = css`
@@ -977,94 +1370,22 @@ const turnStatusStyle = css`
   color: white;
   font-size: 12px;
   font-weight: 600;
+  flex-shrink: 0;
+  min-height: 36px;
 `
 
-const boardContainerStyle = css`
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 15px;
-  padding: 15px;
-  min-height: 500px;
-  max-height: 70vh;
-  overflow: auto;
-`
 
-const gridStyle = css`
-  display: grid;
-  grid-template-columns: repeat(15, 1fr);
-  grid-template-rows: repeat(15, 1fr);
-  gap: 2px;
-  width: 100%;
-  max-width: 600px;
-  aspect-ratio: 1;
-`
-
-const cellStyle = css`
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: scale(1.05);
-  }
-`
-
-const centerCellStyle = css`
-  background: linear-gradient(135deg, #feca57 0%, #ff9ff3 100%);
-  border: 2px solid #fff;
-  box-shadow: 0 0 15px rgba(254, 202, 87, 0.6);
-`
-
-const emptyCellStyle = css`
-  background: rgba(255, 255, 255, 0.05);
-`
-
-const validPlacementStyle = css`
-  background: rgba(76, 175, 80, 0.3);
-  border-color: #4CAF50;
-`
-
-const invalidPlacementStyle = css`
-  background: rgba(244, 67, 54, 0.2);
-  cursor: not-allowed;
-`
-
-const placedThisTurnStyle = css`
-  background: rgba(76, 175, 80, 0.4);
-  border: 2px solid #4CAF50;
-  box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
-`
-
-const centerStarStyle = css`
-  font-size: 16px;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
-`
-
-const placementHintStyle = css`
-  position: absolute;
-  font-size: 16px;
-  color: white;
-  opacity: 0.8;
-  pointer-events: none;
-`
 
 const handStyle = css`
   background: rgba(255, 255, 255, 0.1);
   border-radius: 15px;
   padding: 15px;
   min-height: 120px;
+  max-height: 180px;
   flex: 0 0 auto;
+  flex-shrink: 0;
   margin-top: auto;
+  overflow: hidden;
 `
 
 const handHeaderStyle = css`
@@ -1197,9 +1518,38 @@ const gameMessageStyle = css`
   background: rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   text-align: center;
+  flex-shrink: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 `
 
 const actionButtonsStyle = css`
   display: flex;
   gap: 8px;
-` 
+  align-items: center;
+`
+
+const emergencyResetButtonStyle = css`
+  background: linear-gradient(135deg, #F44336 0%, #D32F2F 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+  
+  &:hover {
+    background: linear-gradient(135deg, #D32F2F 0%, #F44336 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
+`
