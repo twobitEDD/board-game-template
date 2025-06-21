@@ -26,7 +26,8 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
   const handlePlayerCountSelect = (count: number) => {
     console.log(`Selected ${count} players for ${playType} play`)
     setPlayerCount(count)
-    const names = Array.from({ length: count }, (_, i) => `Player ${i + 1}`)
+    const defaultNames = ['EDD', 'TOREN', 'RUBY', 'ASH']
+    const names = Array.from({ length: count }, (_, i) => defaultNames[i] || `Player ${i + 1}`)
     setPlayerNames(names)
     
     console.log('Current playType:', playType, 'count:', count, 'condition:', playType === 'local' && count > 1)
@@ -51,16 +52,20 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
 
   const handlePlayerNameChange = (index: number, name: string) => {
     const newNames = [...playerNames]
-    newNames[index] = name || `Player ${index + 1}`
+    newNames[index] = name // Allow empty names, don't force default
     setPlayerNames(newNames)
   }
 
   const handleStartGame = () => {
     if (playType && playerCount && playerNames.length === playerCount) {
+      const defaultNames = ['ASTRO', 'ROSE', 'TOREN', 'RUBY']
+      const finalNames = playerNames.map((name, index) => 
+        name.trim() || defaultNames[index] || `Player ${index + 1}`
+      )
       onStartGame({
         playType,
         playerCount,
-        playerNames
+        playerNames: finalNames
       })
     }
   }
@@ -199,7 +204,7 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
                     type="text"
                     value={name}
                     onChange={(e) => handlePlayerNameChange(index, e.target.value)}
-                    placeholder={`Player ${index + 1}`}
+                    placeholder={['ASTRO', 'ROSE', 'TOREN', 'RUBY'][index] || `Player ${index + 1}`}
                     maxLength={20}
                   />
                 </div>

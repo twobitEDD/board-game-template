@@ -2,7 +2,7 @@
 import { css, Global } from '@emotion/react'
 import { NumberTile } from './NumberTile'
 import { NumberTileId } from '../../../rules/src/material/NumberTileId'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 import { GameConfig } from './GameSetup'
 
@@ -80,7 +80,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   const [drawPile, setDrawPile] = useState<NumberTileId[]>(() => initialPile.slice(5))
   
   const [boardTiles, setBoardTiles] = useState<TileItem[]>([
-    { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 3, y: 3 } }
+    { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 7, y: 7 } }
   ])
   
   const [handTiles, setHandTiles] = useState<TileItem[]>(() => 
@@ -109,8 +109,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   
   const [gameMessage, setGameMessage] = useState(
     gameConfig.playerCount === 1 
-      ? `Welcome to Solo Practice, ${gameConfig.playerNames[0]}! Place tiles in a single row or column that adds to a multiple of 5.`
-      : `${currentPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5.`
+      ? `Welcome to Solo Practice, ${gameConfig.playerNames[0]}! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
+      : `${currentPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
   )
 
   // Update parent component with game data
@@ -139,18 +139,78 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return
     }
     
-    // Check if spot is empty
-    const isOccupied = boardTiles.some((tile: TileItem) => tile.location.x === x && tile.location.y === y)
-    if (isOccupied) {
-      setGameMessage("That spot is already occupied!")
-      return
-    }
-    
     // Check if placement is valid
     if (!isValidPlacement(x, y)) {
       console.log(`Invalid placement at (${x},${y}). Turn direction: ${currentTurnDirection}, Row: ${currentTurnRow}, Col: ${currentTurnCol}`)
       console.log('Tiles placed this turn:', tilesPlacedThisTurn.map(t => `(${t.location.x},${t.location.y})`))
-      setGameMessage("Invalid placement! Check the game rules.")
+      
+      // Check if it's specifically a 5-tile sequence limit issue
+      const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+      const allTilesIncludingNew = [...allTiles, { 
+        id: NumberTileId.One,
+        uniqueId: 'temp',
+        location: { type: 'Board', x, y }
+      }]
+      
+      // Check horizontal sequence length
+      const horizontalTiles = []
+      let leftX = x
+      while (leftX > 0 && allTilesIncludingNew.some(tile => tile.location.x === leftX - 1 && tile.location.y === y)) {
+        leftX--
+      }
+      for (let currentX = leftX; currentX < 15; currentX++) {
+        const tile = allTilesIncludingNew.find(tile => tile.location.x === currentX && tile.location.y === y)
+        if (tile) {
+          horizontalTiles.push(tile)
+        } else {
+          break
+        }
+      }
+      
+      // Check vertical sequence length
+      const verticalTiles = []
+      let topY = y
+      while (topY > 0 && allTilesIncludingNew.some(tile => tile.location.x === x && tile.location.y === topY - 1)) {
+        topY--
+      }
+      for (let currentY = topY; currentY < 15; currentY++) {
+        const tile = allTilesIncludingNew.find(tile => tile.location.x === x && tile.location.y === currentY)
+        if (tile) {
+          verticalTiles.push(tile)
+        } else {
+          break
+        }
+      }
+      
+      // Check if it's an adjacency issue
+      const adjacentPositions = [
+        { x: x - 1, y },
+        { x: x + 1, y },
+        { x, y: y - 1 },
+        { x, y: y + 1 }
+      ]
+      const isAdjacent = adjacentPositions.some(pos =>
+        allTiles.some((tile: TileItem) => tile.location.x === pos.x && tile.location.y === pos.y)
+      )
+      
+      if (horizontalTiles.length > 5) {
+        setGameMessage(`🚫 Cannot place tile! Would create a horizontal sequence of ${horizontalTiles.length} tiles (max 5 allowed).`)
+      } else if (verticalTiles.length > 5) {
+        setGameMessage(`🚫 Cannot place tile! Would create a vertical sequence of ${verticalTiles.length} tiles (max 5 allowed).`)
+      } else if (!isAdjacent && (boardTiles.length > 0 || tilesPlacedThisTurn.length > 0)) {
+        setGameMessage("🚫 Invalid placement! Tiles must be adjacent (touching) to existing tiles on the board.")
+      } else if (boardTiles.length === 0 && tilesPlacedThisTurn.length === 0) {
+        setGameMessage("🚫 First tile must be placed on or adjacent to the center star (⭐).")
+      } else {
+        // Check if it's a turn placement issue
+        const isValidTurn = tilesPlacedThisTurn.length > 0 ? isValidTurnPlacement(x, y, tilesPlacedThisTurn) : true
+        
+        if (!isValidTurn) {
+          setGameMessage("🚫 Invalid placement! All tiles in a turn must be in the same row OR the same column.")
+        } else {
+          setGameMessage("Invalid placement! Check that you're placing tiles in a valid position.")
+        }
+      }
       return
     }
     
@@ -195,8 +255,9 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     const turnSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
     const newTurnScore = turnSequences.reduce((total, seq) => {
       const baseScore = seq.sum * 10
-      const lengthBonus = seq.tiles.length * 20
-      return total + baseScore + lengthBonus
+      console.log(`🔍 SCORING DEBUG: Sequence [${seq.tiles.map(t => getTileValue(t.id)).join(',')}] sum=${seq.sum}, length=${seq.tiles.length}`)
+      console.log(`   Score: ${seq.sum} × 10 = ${baseScore}`)
+      return total + baseScore
     }, 0)
     
     setTurnScore(newTurnScore)
@@ -205,16 +266,25 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     setHandTiles(prev => prev.filter(tile => tile.uniqueId !== selectedTile.uniqueId))
     setSelectedTile(null)
     
-    // Update message based on turn progress
-    const currentSeq = getCurrentTurnSequence()
-    if (currentSeq) {
-      const isValidSum = currentSeq.sum % 5 === 0
-      const directionText = currentTurnDirection === 'horizontal' ? `row ${currentTurnRow}` : `column ${currentTurnCol}`
+    // Update message based on turn progress - check ALL sequences created
+    const allTurnSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
+    
+    if (allTurnSequences.length > 0) {
+      const allValid = allTurnSequences.every(seq => seq.sum % 5 === 0)
+      const sequenceTexts = allTurnSequences.map(seq => 
+        `${seq.tiles.map(t => getTileValue(t.id)).join(' + ')} = ${seq.sum}`
+      )
       
-      if (isValidSum) {
-        setGameMessage(`✅ Valid sequence in ${directionText}! Sum: ${currentSeq.sum} (multiple of 5). You can end your turn or place more tiles.`)
+      console.log(`All sequences this turn:`, sequenceTexts)
+      
+      if (allValid) {
+        setGameMessage(`✅ Valid sequences! ${sequenceTexts.join(' | ')} (all multiples of 5). You can end your turn or place more tiles.`)
       } else {
-        setGameMessage(`🔄 Building sequence in ${directionText}. Current sum: ${currentSeq.sum}. Need a multiple of 5 to end turn.`)
+        const invalidSeqs = allTurnSequences.filter(seq => seq.sum % 5 !== 0)
+        const invalidTexts = invalidSeqs.map(seq => 
+          `${seq.tiles.map(t => getTileValue(t.id)).join(' + ')} = ${seq.sum}`
+        )
+        setGameMessage(`🔄 Building sequences. Invalid: ${invalidTexts.join(', ')}. Need all sequences to be multiples of 5.`)
       }
     } else {
       setGameMessage("Tile placed! Continue building your sequence.")
@@ -229,30 +299,6 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     return drawnTiles
   }
 
-  const getCurrentTurnSequence = () => {
-    if (tilesPlacedThisTurn.length === 0) return null
-    
-    // Get all tiles in the current turn's row or column
-    let sequenceTiles: TileItem[] = []
-    
-    if (currentTurnDirection === 'horizontal' && currentTurnRow !== null) {
-      // Get all tiles in the current row
-      sequenceTiles = [...boardTiles, ...tilesPlacedThisTurn]
-        .filter(tile => tile.location.y === currentTurnRow)
-        .sort((a, b) => a.location.x! - b.location.x!)
-    } else if (currentTurnDirection === 'vertical' && currentTurnCol !== null) {
-      // Get all tiles in the current column
-      sequenceTiles = [...boardTiles, ...tilesPlacedThisTurn]
-        .filter(tile => tile.location.x === currentTurnCol)
-        .sort((a, b) => a.location.y! - b.location.y!)
-    }
-    
-    if (sequenceTiles.length === 0) return null
-    
-    const sum = sequenceTiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
-    return { tiles: sequenceTiles, sum }
-  }
-
   const handleEndTurn = () => {
     if (tilesPlacedThisTurn.length === 0) {
       setGameMessage("You must place at least one tile before ending your turn!")
@@ -263,12 +309,19 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
     let hasValidSequence = false
     let invalidSequences: string[] = []
+    let allSequencesFound: string[] = []
+
+    console.log(`🔍 END TURN VALIDATION: Checking ${tilesPlacedThisTurn.length} tiles placed this turn`)
+    console.log('Tiles placed this turn:', tilesPlacedThisTurn.map(t => `(${t.location.x},${t.location.y})=${getTileValue(t.id)}`))
 
     // Check all sequences that contain tiles placed this turn
     tilesPlacedThisTurn.forEach(placedTile => {
       if (placedTile.location.x === undefined || placedTile.location.y === undefined) return
       
+      console.log(`🔍 Checking sequences at position (${placedTile.location.x},${placedTile.location.y})`)
       const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTiles)
+      console.log(`Found ${sequences.length} sequences at this position`)
+      
       sequences.forEach(seq => {
         const hasNewTile = seq.tiles.some(tile => 
           tilesPlacedThisTurn.some(placed => 
@@ -276,11 +329,16 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
           )
         )
         
+        const seqText = `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum}`
+        allSequencesFound.push(`${seqText} (length: ${seq.tiles.length}, hasNewTile: ${hasNewTile})`)
+        
         if (hasNewTile) {
+          console.log(`🔍 Sequence contains new tile: ${seqText}`)
           if (seq.sum % 5 === 0 && seq.sum > 0) {
+            console.log(`✅ Valid sequence: ${seqText}`)
             hasValidSequence = true
           } else {
-            const seqText = `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum}`
+            console.log(`❌ Invalid sequence: ${seqText}`)
             if (!invalidSequences.includes(seqText)) {
               invalidSequences.push(seqText)
             }
@@ -288,6 +346,10 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         }
       })
     })
+
+    console.log(`🔍 All sequences found:`, allSequencesFound)
+    console.log(`🔍 Valid sequences found: ${hasValidSequence}`)
+    console.log(`🔍 Invalid sequences:`, invalidSequences)
 
     if (!hasValidSequence) {
       setGameMessage(`Invalid play! All sequences must sum to multiples of 5. Current sequences: ${invalidSequences.join(', ')}. Keep playing or use Undo Turn.`)
@@ -303,8 +365,9 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     const turnSequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
     const finalTurnScore = turnSequences.reduce((total, seq) => {
       const baseScore = seq.sum * 10
-      const lengthBonus = seq.tiles.length * 20
-      return total + baseScore + lengthBonus
+      console.log(`🎯 FINAL SCORING: Sequence [${seq.tiles.map(t => getTileValue(t.id)).join(',')}] sum=${seq.sum}, length=${seq.tiles.length}`)
+      console.log(`   Score: ${seq.sum} × 10 = ${baseScore}`)
+      return total + baseScore
     }, 0)
     
     // Add turn score to current player's total score
@@ -340,7 +403,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       const nextPlayerIndex = (currentPlayerIndex + 1) % gameConfig.playerCount
       setCurrentPlayerIndex(nextPlayerIndex)
       const nextPlayer = gameConfig.playerNames[nextPlayerIndex] || `Player ${nextPlayerIndex + 1}`
-      setGameMessage(`${nextPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5.`)
+      setGameMessage(`${nextPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`)
     }
     
     // Show turn summary
@@ -352,7 +415,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     
     console.log(`🎉 Turn complete! Turn score: ${finalTurnScore}, Total score: ${newTotalScore}`)
     console.log('Valid sequences:', turnSequences.map(seq => 
-      `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum} (${seq.sum * 10 + seq.tiles.length * 20} points)`
+      `${seq.tiles.map(t => getTileValue(t.id)).join('+')} = ${seq.sum} (${seq.sum * 10} points)`
     ))
     
     // Check for game end conditions
@@ -491,10 +554,34 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     }
   }
 
+  // Simplified validation: just check basic rules without overly complex contiguity
+  const isValidTurnPlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[]): boolean => {
+    // First tile of turn: always valid (adjacency checked elsewhere)
+    if (tilesPlacedThisTurn.length === 0) {
+      return true
+    }
+    
+    // All tiles in a turn must be in the same row OR same column
+    const allTurnTilesWithNew = [...tilesPlacedThisTurn, {
+      id: NumberTileId.One,
+      uniqueId: 'temp',
+      location: { type: 'Board', x, y }
+    }]
+    
+    const allXValues = allTurnTilesWithNew.map(tile => tile.location.x || 0)
+    const allYValues = allTurnTilesWithNew.map(tile => tile.location.y || 0)
+    
+    const allSameRow = allYValues.every(val => val === allYValues[0])
+    const allSameCol = allXValues.every(val => val === allXValues[0])
+    
+    // Must be all in same row OR all in same column
+    return allSameRow || allSameCol
+  }
+
   const getSequencesAtPosition = (x: number, y: number, tiles: TileItem[]) => {
     const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
     
-    // Check horizontal sequence
+    // Check horizontal sequence (max 5 tiles)
     const horizontalTiles = []
     
     // Find leftmost position
@@ -503,8 +590,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       leftX--
     }
     
-    // Collect horizontal tiles from left to right
-    for (let currentX = leftX; currentX < 7; currentX++) {
+    // Collect horizontal tiles from left to right (max 5 tiles)
+    for (let currentX = leftX; currentX < 15 && horizontalTiles.length < 5; currentX++) {
       const tile = tiles.find(tile => tile.location.x === currentX && tile.location.y === y)
       if (tile) {
         horizontalTiles.push(tile)
@@ -516,9 +603,10 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     if (horizontalTiles.length > 1) {
       const sum = horizontalTiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
       sequences.push({ tiles: horizontalTiles, sum })
+      console.log(`🔍 Horizontal sequence: ${horizontalTiles.length} tiles, sum=${sum}`)
     }
     
-    // Check vertical sequence
+    // Check vertical sequence (max 5 tiles)
     const verticalTiles = []
     
     // Find topmost position
@@ -527,8 +615,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       topY--
     }
     
-    // Collect vertical tiles from top to bottom
-    for (let currentY = topY; currentY < 7; currentY++) {
+    // Collect vertical tiles from top to bottom (max 5 tiles)
+    for (let currentY = topY; currentY < 15 && verticalTiles.length < 5; currentY++) {
       const tile = tiles.find(tile => tile.location.x === x && tile.location.y === currentY)
       if (tile) {
         verticalTiles.push(tile)
@@ -540,14 +628,54 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     if (verticalTiles.length > 1) {
       const sum = verticalTiles.reduce((total, tile) => total + getTileValue(tile.id), 0)
       sequences.push({ tiles: verticalTiles, sum })
+      console.log(`🔍 Vertical sequence: ${verticalTiles.length} tiles, sum=${sum}`)
     }
     
     return sequences
   }
 
-  const isValidPlacement = (x: number, y: number): boolean => {
-    // If no tiles placed this turn, must be adjacent to existing tiles
-    if (tilesPlacedThisTurn.length === 0) {
+  // Smart validation that only runs when a tile is selected and position is empty
+  const isValidPlacement = useMemo(() => {
+    if (!selectedTile) return () => false
+    
+    const cache = new Map<string, boolean>()
+    
+    return (x: number, y: number): boolean => {
+      const cacheKey = `${x},${y},${boardTiles.length},${tilesPlacedThisTurn.length},${currentTurnDirection || 'none'}`
+      
+      if (cache.has(cacheKey)) {
+        return cache.get(cacheKey)!
+      }
+      
+      const result = validatePlacement(x, y)
+      cache.set(cacheKey, result)
+      return result
+    }
+  }, [selectedTile, boardTiles, tilesPlacedThisTurn, currentTurnDirection])
+
+  const validatePlacement = (x: number, y: number): boolean => {
+    // Check if the specific position is within board bounds (0-14)
+    if (x < 0 || x >= 15 || y < 0 || y >= 15) {
+      return false
+    }
+    
+    // Check if the specific position is already occupied
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
+    
+    if (isOccupied) {
+      return false
+    }
+
+    // Special case: first tile of the game must be on center (7,7) or adjacent to center
+    if (boardTiles.length === 0 && tilesPlacedThisTurn.length === 0) {
+      const isCenterOrAdjacent = (x === 7 && y === 7) || 
+        (Math.abs(x - 7) <= 1 && Math.abs(y - 7) <= 1 && (x === 7 || y === 7))
+      if (!isCenterOrAdjacent) {
+        return false
+      }
+    } else {
+      // All other tiles must be adjacent to existing tiles (including tiles placed this turn)
       const adjacentPositions = [
         { x: x - 1, y },
         { x: x + 1, y },
@@ -556,24 +684,23 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       ]
       
       const isAdjacent = adjacentPositions.some(pos =>
-        boardTiles.some((tile: TileItem) => tile.location.x === pos.x && tile.location.y === pos.y)
+        allTiles.some((tile: TileItem) => tile.location.x === pos.x && tile.location.y === pos.y)
       )
       
       if (!isAdjacent) {
-        console.log(`Checking placement at (${x},${y}): not adjacent to existing tiles`)
         return false
       }
     }
 
-    // If tiles already placed this turn, check direction constraints
+    // If tiles already placed this turn, check direction constraints AND contiguity
     if (tilesPlacedThisTurn.length > 0) {
+      // Reduced direction check logging
+      
       if (currentTurnDirection === 'horizontal' && y !== currentTurnRow) {
-        console.log(`Checking placement at (${x},${y}): must be in row ${currentTurnRow}`)
         return false
       }
       
       if (currentTurnDirection === 'vertical' && x !== currentTurnCol) {
-        console.log(`Checking placement at (${x},${y}): must be in column ${currentTurnCol}`)
         return false
       }
       
@@ -584,31 +711,77 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         const sameCol = firstTile.location.x === x
         
         if (!sameRow && !sameCol) {
-          console.log(`Checking placement at (${x},${y}): must be in same row or column as first tile at (${firstTile.location.x},${firstTile.location.y})`)
           return false
         }
       }
       
-      // For subsequent tiles in the turn, they can be placed anywhere in the row/column
-      // No need to be adjacent to existing tiles, just in the right row/column
+      // Check turn placement rules: tiles must be in same row or column
+      try {
+        const isValidTurn = isValidTurnPlacement(x, y, tilesPlacedThisTurn)
+        
+        if (!isValidTurn) {
+          return false
+        }
+      } catch (error) {
+        console.error(`Error checking turn placement at (${x},${y}):`, error)
+        // If there's an error in turn checking, allow the placement to avoid crashes
+        return true
+      }
     }
 
-    // Check if row/column would exceed 7 tiles (board size)
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    const tilesInRow = allTiles.filter(tile => tile.location.y === y).length
-    const tilesInCol = allTiles.filter(tile => tile.location.x === x).length
+    // Check 5-tile limit: no contiguous sequence can be more than 5 tiles
+    const allTilesIncludingNew = [...allTiles, { 
+      id: NumberTileId.One, // dummy tile for counting
+      uniqueId: 'temp',
+      location: { type: 'Board', x, y }
+    }]
     
-    if (tilesInRow >= 7) {
-      console.log(`Checking placement at (${x},${y}): row ${y} already has 7 tiles (board limit)`)
+    // Check horizontal sequence length at this position
+    const horizontalTiles = []
+    
+    // Find leftmost position in horizontal sequence
+    let leftX = x
+    while (leftX > 0 && allTilesIncludingNew.some(tile => tile.location.x === leftX - 1 && tile.location.y === y)) {
+      leftX--
+    }
+    
+    // Count horizontal tiles from left to right
+    for (let currentX = leftX; currentX < 15; currentX++) {
+      const tile = allTilesIncludingNew.find(tile => tile.location.x === currentX && tile.location.y === y)
+      if (tile) {
+        horizontalTiles.push(tile)
+      } else {
+        break
+      }
+    }
+    
+    if (horizontalTiles.length > 5) {
       return false
     }
     
-    if (tilesInCol >= 7) {
-      console.log(`Checking placement at (${x},${y}): column ${x} already has 7 tiles (board limit)`)
+    // Check vertical sequence length at this position
+    const verticalTiles = []
+    
+    // Find topmost position in vertical sequence
+    let topY = y
+    while (topY > 0 && allTilesIncludingNew.some(tile => tile.location.x === x && tile.location.y === topY - 1)) {
+      topY--
+    }
+    
+    // Count vertical tiles from top to bottom
+    for (let currentY = topY; currentY < 15; currentY++) {
+      const tile = allTilesIncludingNew.find(tile => tile.location.x === x && tile.location.y === currentY)
+      if (tile) {
+        verticalTiles.push(tile)
+      } else {
+        break
+      }
+    }
+    
+    if (verticalTiles.length > 5) {
       return false
     }
 
-    console.log(`Checking placement at (${x},${y}): valid placement`)
     return true
   }
 
@@ -652,13 +825,20 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         {/* Game Board */}
         <div css={boardContainerStyle}>
           <div css={gridStyle}>
-            {Array.from({ length: 7 }, (_, row) =>
-              Array.from({ length: 7 }, (_, col) => {
+            {Array.from({ length: 15 }, (_, row) =>
+              Array.from({ length: 15 }, (_, col) => {
                 const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
-                const isCenter = row === 3 && col === 3
-                const canPlace = selectedTile && !boardTile && isValidPlacement(col, row)
-                const invalidPlace = selectedTile && !boardTile && !isValidPlacement(col, row)
+                const isCenter = row === 7 && col === 7
                 const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
+                
+                // Only validate placement if tile is selected and position is empty
+                // This prevents calling isValidPlacement 225 times on every render
+                let canPlace = false
+                let invalidPlace = false
+                if (selectedTile && !boardTile && !tilesPlacedThisTurn.some(t => t.location.x === col && t.location.y === row)) {
+                  canPlace = isValidPlacement(col, row)
+                  invalidPlace = !canPlace
+                }
                 
                 return (
                   <div 
@@ -740,14 +920,17 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
 // Contained, consistent styles
 const gameContainerStyle = css`
   width: 100%;
-  max-width: 800px;
+  max-width: 900px;
   height: auto;
-  min-height: 600px;
+  min-height: 700px;
+  max-height: 95vh;
   background: rgba(0, 0, 0, 0.1);
   border-radius: 20px;
-  overflow: visible;
+  overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
 `
 
 const gameContentStyle = css`
@@ -797,23 +980,25 @@ const turnStatusStyle = css`
 `
 
 const boardContainerStyle = css`
-  flex: 0 0 auto;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 15px;
   padding: 15px;
-  height: 400px;
+  min-height: 500px;
+  max-height: 70vh;
+  overflow: auto;
 `
 
 const gridStyle = css`
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-template-rows: repeat(7, 1fr);
-  gap: 3px;
+  grid-template-columns: repeat(15, 1fr);
+  grid-template-rows: repeat(15, 1fr);
+  gap: 2px;
   width: 100%;
-  max-width: 400px;
+  max-width: 600px;
   aspect-ratio: 1;
 `
 
