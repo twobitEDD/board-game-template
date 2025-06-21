@@ -308,6 +308,11 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     totalScore: number
   } | null>(null)
   const [gameStartTime] = useState(Date.now())
+  
+  // Mobile UI state
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false)
+  const [isTurnStatusExpanded, setIsTurnStatusExpanded] = useState(false)
+  const [isActionsExpanded, setIsActionsExpanded] = useState(false)
 
   // Performance monitoring and cleanup (simplified to prevent re-render loops)
   useEffect(() => {
@@ -1324,20 +1329,34 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       <div css={gameContentStyle}>
         {/* Header */}
         <div css={headerStyle}>
-          <h2 css={titleStyle}>🎮 FIVES</h2>
-          <div css={playerInfoStyle}>
-            <span>
-              {gameConfig.playerCount === 1 
-                ? `Player: ${playerName || 'Unknown'}` 
-                : `Current Turn: ${currentPlayer}`
-              }
-            </span>
-            <span>Score: {currentScore}</span>
-            <span>Turn: {turnNumber}</span>
-            <span>Draw Pile: {drawPile.length}</span>
-            <span>Hand: {handTiles.length} {handTiles.length > 0 ? `(${handTiles.map(t => getTileValue(t.id)).join(',')})` : ''}</span>
-            {selectedTile && <span>Selected: {getTileValue(selectedTile.id)}</span>}
+          <div css={headerMainStyle}>
+            <h2 css={titleStyle}>🎮 FIVES</h2>
+            <div css={headerEssentialStyle}>
+              <span css={currentPlayerStyle}>
+                {gameConfig.playerCount === 1 
+                  ? playerName || 'Solo' 
+                  : currentPlayer
+                }
+              </span>
+              <span css={scoreStyle}>{currentScore}pts</span>
+              <button 
+                css={expandButtonStyle}
+                onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
+              >
+                {isHeaderExpanded ? '▼' : '▶'}
+              </button>
+            </div>
           </div>
+          {isHeaderExpanded && (
+            <div css={headerExpandedStyle}>
+              <div css={playerInfoStyle}>
+                <span>Turn: {turnNumber}</span>
+                <span>Draw Pile: {drawPile.length}</span>
+                <span>Hand: {handTiles.length}</span>
+                {selectedTile && <span>Selected: {getTileValue(selectedTile.id)}</span>}
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Game Message */}
@@ -1348,33 +1367,46 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         {/* Turn Status */}
         {tilesPlacedThisTurn.length > 0 && (
           <div css={turnStatusStyle}>
-            <span>Tiles placed this turn: {tilesPlacedThisTurn.length}</span>
-            <span>Potential turn score: {turnScore}</span>
-            {turnScore > 0 && (
-              <span style={{ fontSize: '10px', opacity: 0.8 }}>
-                {(() => {
-                  // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
-                  if (circularPatternDetectedRef.current) {
-                    return `Emergency mode - End turn to see scoring`
-                  }
-                  
-                  // Only recalculate sequences for display if we have a reasonable number of tiles
-                  if (tilesPlacedThisTurn.length > 3) {
-                    return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
-                  }
-                  
-                  try {
-                    const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
-                    return sequences.map(seq => {
-                      const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
-                      return `${tileValues}=${seq.sum}(×10)`
-                    }).join(' | ')
-                  } catch (error) {
-                    console.warn('⚠️ Error in sequence display calculation:', error)
-                    return `Calculating... End turn to see scores`
-                  }
-                })()}
+            <div css={turnStatusMainStyle}>
+              <span css={turnStatusEssentialStyle}>
+                {tilesPlacedThisTurn.length} tiles • {turnScore}pts
               </span>
+              <button 
+                css={expandButtonStyle}
+                onClick={() => setIsTurnStatusExpanded(!isTurnStatusExpanded)}
+              >
+                {isTurnStatusExpanded ? '▼' : '▶'}
+              </button>
+            </div>
+            {isTurnStatusExpanded && (
+              <div css={turnStatusExpandedStyle}>
+                {turnScore > 0 && (
+                  <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                    {(() => {
+                      // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
+                      if (circularPatternDetectedRef.current) {
+                        return `Emergency mode - End turn to see scoring`
+                      }
+                      
+                      // Only recalculate sequences for display if we have a reasonable number of tiles
+                      if (tilesPlacedThisTurn.length > 3) {
+                        return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
+                      }
+                      
+                      try {
+                        const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
+                        return sequences.map(seq => {
+                          const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+                          return `${tileValues}=${seq.sum}(×10)`
+                        }).join(' | ')
+                      } catch (error) {
+                        console.warn('⚠️ Error in sequence display calculation:', error)
+                        return `Calculating... End turn to see scores`
+                      }
+                    })()}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1392,27 +1424,41 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
         {/* Player Hand */}
         <div css={handStyle}>
           <div css={handHeaderStyle}>
-            <div css={handLabelStyle}>YOUR HAND</div>
-            <div css={actionButtonsStyle}>
-              {tilesPlacedThisTurn.length > 0 && (
-                <button css={endTurnButtonStyle} onClick={handleEndTurn}>
-                  End Turn ({turnScore} pts)
+            <div css={handHeaderMainStyle}>
+              <div css={handLabelStyle}>YOUR HAND</div>
+              <div css={handEssentialActionsStyle}>
+                {tilesPlacedThisTurn.length > 0 && (
+                  <button css={endTurnButtonCompactStyle} onClick={handleEndTurn}>
+                    End ({turnScore}pts)
+                  </button>
+                )}
+                <button 
+                  css={expandButtonStyle}
+                  onClick={() => setIsActionsExpanded(!isActionsExpanded)}
+                >
+                  {isActionsExpanded ? '▼' : '▶'}
                 </button>
-              )}
-              {tilesPlacedThisTurn.length > 0 && (
-                <button css={undoTurnButtonStyle} onClick={handleUndoTurn}>
-                  Undo Turn
-                </button>
-              )}
-              <button css={skipTurnButtonStyle} onClick={handleSkipTurn}>
-                Skip Turn
-              </button>
-              {turnNumber > 20 && (
-                <button css={emergencyResetButtonStyle} onClick={handleEmergencyReset}>
-                  🔧 Reset
-                </button>
-              )}
+              </div>
             </div>
+            {isActionsExpanded && (
+              <div css={handActionsExpandedStyle}>
+                <div css={actionButtonsStyle}>
+                  {tilesPlacedThisTurn.length > 0 && (
+                    <button css={undoTurnButtonStyle} onClick={handleUndoTurn}>
+                      Undo Turn
+                    </button>
+                  )}
+                  <button css={skipTurnButtonStyle} onClick={handleSkipTurn}>
+                    Skip Turn
+                  </button>
+                  {turnNumber > 20 && (
+                    <button css={emergencyResetButtonStyle} onClick={handleEmergencyReset}>
+                      🔧 Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <div css={handTilesStyle}>
             {handTiles && handTiles.length > 0 ? (
@@ -1490,6 +1536,18 @@ const gameContainerStyle = css`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  
+  @media (max-width: 768px) {
+    border-radius: 15px;
+    border-width: 1px;
+    height: 100vh;
+  }
+  
+  @media (max-width: 480px) {
+    border-radius: 10px;
+    max-width: none;
+    margin: 0;
+  }
 `
 
 const gameContentStyle = css`
@@ -1499,17 +1557,138 @@ const gameContentStyle = css`
   padding: 20px;
   gap: 15px;
   overflow: hidden;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+    gap: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 10px;
+    gap: 8px;
+  }
 `
 
 const headerStyle = css`
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  
+  @media (max-width: 768px) {
+    border-radius: 8px;
+  }
+`
+
+const headerMainStyle = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 10px 15px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-  flex-shrink: 0;
   min-height: 60px;
+  
+  @media (max-width: 768px) {
+    padding: 8px 12px;
+    min-height: 50px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 6px 10px;
+    min-height: 44px;
+  }
+`
+
+const headerEssentialStyle = css`
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  
+  @media (max-width: 768px) {
+    gap: 10px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 8px;
+  }
+`
+
+const currentPlayerStyle = css`
+  color: #FFD700;
+  font-size: 14px;
+  font-weight: 700;
+  
+  @media (max-width: 768px) {
+    font-size: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 11px;
+  }
+`
+
+const scoreStyle = css`
+  color: #4CAF50;
+  font-size: 16px;
+  font-weight: 900;
+  
+  @media (max-width: 768px) {
+    font-size: 14px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 12px;
+  }
+`
+
+const expandButtonStyle = css`
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  color: white;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 28px;
+  min-width: 28px;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+  
+  @media (max-width: 480px) {
+    padding: 3px 6px;
+    font-size: 10px;
+    min-height: 24px;
+    min-width: 24px;
+  }
+`
+
+const headerExpandedStyle = css`
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 15px;
+  background: rgba(255, 255, 255, 0.1);
+  animation: slideDown 0.3s ease;
+  
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @media (max-width: 768px) {
+    padding: 8px 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 6px 10px;
+  }
 `
 
 const titleStyle = css`
@@ -1518,6 +1697,14 @@ const titleStyle = css`
   font-size: 24px;
   font-weight: 900;
   text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  
+  @media (max-width: 768px) {
+    font-size: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 18px;
+  }
 `
 
 const playerInfoStyle = css`
@@ -1526,21 +1713,77 @@ const playerInfoStyle = css`
   color: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 600;
+  flex-wrap: wrap;
+  
+  @media (max-width: 768px) {
+    gap: 15px;
+    font-size: 11px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 10px;
+    font-size: 10px;
+  }
 `
 
 const turnStatusStyle = css`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 15px;
   background: rgba(76, 175, 80, 0.2);
   border: 1px solid rgba(76, 175, 80, 0.4);
   border-radius: 8px;
   color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  
+  @media (max-width: 768px) {
+    border-radius: 6px;
+  }
+`
+
+const turnStatusMainStyle = css`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 15px;
+  min-height: 36px;
+  
+  @media (max-width: 768px) {
+    padding: 6px 12px;
+    min-height: 32px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 5px 10px;
+    min-height: 28px;
+  }
+`
+
+const turnStatusEssentialStyle = css`
   font-size: 12px;
   font-weight: 600;
-  flex-shrink: 0;
-  min-height: 36px;
+  
+  @media (max-width: 768px) {
+    font-size: 11px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 10px;
+  }
+`
+
+const turnStatusExpandedStyle = css`
+  border-top: 1px solid rgba(76, 175, 80, 0.3);
+  padding: 8px 15px;
+  background: rgba(76, 175, 80, 0.1);
+  animation: slideDown 0.3s ease;
+  
+  @media (max-width: 768px) {
+    padding: 6px 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 5px 10px;
+  }
 `
 
 
@@ -1555,13 +1798,86 @@ const handStyle = css`
   flex-shrink: 0;
   margin-top: auto;
   overflow: hidden;
+  
+  @media (max-width: 768px) {
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 100px;
+    max-height: 150px;
+  }
+  
+  @media (max-width: 480px) {
+    border-radius: 10px;
+    padding: 10px;
+    min-height: 90px;
+    max-height: 130px;
+  }
 `
 
 const handHeaderStyle = css`
+  margin-bottom: 10px;
+  
+  @media (max-width: 768px) {
+    margin-bottom: 8px;
+  }
+`
+
+const handHeaderMainStyle = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+`
+
+const handEssentialActionsStyle = css`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  
+  @media (max-width: 480px) {
+    gap: 6px;
+  }
+`
+
+const endTurnButtonCompactStyle = css`
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
+  min-height: 28px;
+  
+  &:hover {
+    background: linear-gradient(135deg, #45a049 0%, #4CAF50 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(76, 175, 80, 0.4);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
+  
+  @media (max-width: 480px) {
+    padding: 5px 10px;
+    font-size: 10px;
+    min-height: 24px;
+  }
+`
+
+const handActionsExpandedStyle = css`
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 8px;
+  margin-top: 8px;
+  animation: slideDown 0.3s ease;
+  
+  @media (max-width: 768px) {
+    padding-top: 6px;
+    margin-top: 6px;
+  }
 `
 
 const handLabelStyle = css`
@@ -1569,30 +1885,17 @@ const handLabelStyle = css`
   font-size: 12px;
   font-weight: 700;
   text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  
+  @media (max-width: 768px) {
+    font-size: 11px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 10px;
+  }
 `
 
-const endTurnButtonStyle = css`
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
-  
-  &:hover {
-    background: linear-gradient(135deg, #45a049 0%, #4CAF50 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
-  }
-  
-  &:active {
-    transform: translateY(0);
-  }
-`
+
 
 const undoTurnButtonStyle = css`
   background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
@@ -1650,6 +1953,20 @@ const handTilesStyle = css`
   background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  
+  @media (max-width: 768px) {
+    gap: 6px;
+    padding: 8px;
+    min-height: 50px;
+    border-radius: 8px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 4px;
+    padding: 6px;
+    min-height: 40px;
+    border-radius: 6px;
+  }
 `
 
 const handTileWrapperStyle = css`
@@ -1692,12 +2009,37 @@ const gameMessageStyle = css`
   display: flex;
   align-items: center;
   justify-content: center;
+  
+  @media (max-width: 768px) {
+    font-size: 14px;
+    padding: 8px;
+    min-height: 36px;
+    border-radius: 6px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 12px;
+    padding: 6px;
+    min-height: 32px;
+    line-height: 1.3;
+  }
 `
 
 const actionButtonsStyle = css`
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  
+  @media (max-width: 768px) {
+    gap: 6px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 4px;
+    flex-direction: column;
+  }
 `
 
 const emergencyResetButtonStyle = css`

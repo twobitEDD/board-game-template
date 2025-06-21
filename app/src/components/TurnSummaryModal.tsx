@@ -146,6 +146,14 @@ const overlayStyle = css`
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
+  padding: 20px;
+  box-sizing: border-box;
+  
+  @media (max-width: 768px) {
+    padding: 10px;
+    align-items: flex-start;
+    padding-top: 20px;
+  }
 `
 
 const modalStyle = css`
@@ -154,17 +162,39 @@ const modalStyle = css`
   border: 2px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow: hidden;
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
   color: white;
+  overflow: hidden;
+  
+  @media (max-width: 768px) {
+    max-height: calc(100vh - 20px);
+    border-radius: 15px;
+    width: 100%;
+    max-width: none;
+  }
+  
+  @media (max-width: 480px) {
+    border-radius: 10px;
+  }
 `
 
 const headerStyle = css`
+  flex-shrink: 0;
   padding: 20px;
   background: rgba(255, 255, 255, 0.1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   text-align: center;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+  }
 `
 
 const titleStyle = css`
@@ -172,18 +202,39 @@ const titleStyle = css`
   font-size: 24px;
   font-weight: 900;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  
+  @media (max-width: 768px) {
+    font-size: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 18px;
+  }
 `
 
 const playerNameStyle = css`
   font-size: 14px;
   opacity: 0.8;
   font-weight: 600;
+  
+  @media (max-width: 480px) {
+    font-size: 12px;
+  }
 `
 
 const contentStyle = css`
+  flex: 1;
   padding: 20px;
-  max-height: 400px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+  }
 `
 
 const sectionStyle = css`
@@ -201,6 +252,10 @@ const tilesDisplayStyle = css`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  
+  @media (max-width: 480px) {
+    gap: 6px;
+  }
 `
 
 const tileChipStyle = css`
@@ -214,6 +269,13 @@ const tileChipStyle = css`
   display: flex;
   align-items: center;
   gap: 6px;
+  
+  @media (max-width: 480px) {
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 8px;
+    gap: 4px;
+  }
 `
 
 const positionStyle = css`
@@ -297,10 +359,19 @@ const totalScoreValueStyle = css`
 `
 
 const footerStyle = css`
+  flex-shrink: 0;
   padding: 20px;
   background: rgba(255, 255, 255, 0.05);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+  }
 `
 
 const continueButtonStyle = css`
@@ -314,6 +385,20 @@ const continueButtonStyle = css`
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+  min-height: 44px; /* Touch target size */
+  
+  @media (max-width: 768px) {
+    padding: 14px 28px;
+    font-size: 16px;
+    border-radius: 10px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 16px 32px;
+    font-size: 14px;
+    width: 100%;
+    max-width: 280px;
+  }
 
   &:hover {
     background: linear-gradient(135deg, #45a049 0%, #4CAF50 100%);
@@ -323,5 +408,12 @@ const continueButtonStyle = css`
 
   &:active {
     transform: translateY(0);
+  }
+  
+  @media (hover: none) {
+    &:hover {
+      transform: none;
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    }
   }
 ` 

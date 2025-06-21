@@ -208,6 +208,19 @@ const overlayStyle = css`
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(8px);
+  padding: 20px;
+  box-sizing: border-box;
+  
+  @media (max-width: 768px) {
+    padding: 10px;
+    align-items: flex-start;
+    padding-top: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 5px;
+    padding-top: 10px;
+  }
 `
 
 const modalStyle = css`
@@ -218,11 +231,25 @@ const modalStyle = css`
     0 20px 60px rgba(0, 0, 0, 0.8),
     0 0 30px rgba(255, 215, 0, 0.2);
   max-width: 600px;
-  width: 95%;
-  max-height: 90vh;
+  width: 100%;
+  max-height: calc(100vh - 40px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   color: white;
   position: relative;
+  
+  @media (max-width: 768px) {
+    max-height: calc(100vh - 20px);
+    border-radius: 20px;
+    border-width: 2px;
+    max-width: none;
+  }
+  
+  @media (max-width: 480px) {
+    max-height: calc(100vh - 10px);
+    border-radius: 15px;
+    border-width: 1px;
+  }
 `
 
 const headerStyle = css`
@@ -231,6 +258,14 @@ const headerStyle = css`
   background: radial-gradient(circle at center, rgba(255, 215, 0, 0.2) 0%, transparent 70%);
   position: relative;
   overflow: hidden;
+  
+  @media (max-width: 768px) {
+    padding: 20px 15px 15px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 15px 10px 10px;
+  }
 
   &::before {
     content: '';
@@ -253,6 +288,16 @@ const victoryIconStyle = css`
   font-size: 64px;
   margin-bottom: 10px;
   animation: bounce 1.5s ease-in-out infinite;
+  
+  @media (max-width: 768px) {
+    font-size: 48px;
+    margin-bottom: 8px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 40px;
+    margin-bottom: 6px;
+  }
 
   @keyframes bounce {
     0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
@@ -272,6 +317,14 @@ const victoryTitleStyle = css`
   background-clip: text;
   animation: goldShine 2s ease-in-out infinite;
   text-shadow: 0 4px 8px rgba(255, 215, 0, 0.3);
+  
+  @media (max-width: 768px) {
+    font-size: 36px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 28px;
+  }
 
   @keyframes goldShine {
     0%, 100% { background-position: 0% 50%; }
@@ -284,6 +337,14 @@ const winnerNameStyle = css`
   font-weight: 700;
   margin: 10px 0 5px 0;
   color: #FFD700;
+  
+  @media (max-width: 768px) {
+    font-size: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 18px;
+  }
 `
 
 const closeGameStyle = css`
@@ -303,6 +364,19 @@ const scoreComparisonStyle = css`
   background: rgba(255, 255, 255, 0.05);
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  
+  @media (max-width: 768px) {
+    margin: 0 15px;
+    padding: 15px;
+    gap: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    flex-direction: column;
+    margin: 0 10px;
+    padding: 12px;
+    gap: 12px;
+  }
 `
 
 const scoreCardStyle = css`
@@ -312,6 +386,17 @@ const scoreCardStyle = css`
   background: rgba(76, 175, 80, 0.2);
   border: 2px solid rgba(76, 175, 80, 0.4);
   min-width: 150px;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+    min-width: 120px;
+  }
+  
+  @media (max-width: 480px) {
+    width: 100%;
+    min-width: auto;
+    padding: 12px;
+  }
 `
 
 const loserCardStyle = css`
@@ -361,6 +446,10 @@ const vsStyle = css`
   font-weight: 900;
   color: rgba(255, 255, 255, 0.6);
   padding: 0 10px;
+  
+  @media (max-width: 480px) {
+    display: none;
+  }
 `
 
 const winningsStyle = css`
@@ -369,6 +458,16 @@ const winningsStyle = css`
   background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(255, 140, 0, 0.1) 100%);
   border-radius: 16px;
   border: 2px solid rgba(255, 215, 0, 0.2);
+  
+  @media (max-width: 768px) {
+    margin: 20px 15px 15px;
+    padding: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    margin: 15px 10px 10px;
+    padding: 12px;
+  }
 `
 
 const winningSectionTitleStyle = css`
@@ -404,6 +503,15 @@ const winningsGridStyle = css`
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
   margin-bottom: 20px;
+  
+  @media (max-width: 768px) {
+    gap: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 `
 
 const winningsItemStyle = css`

@@ -404,6 +404,20 @@ const setupContainerStyle = css`
   justify-content: center;
   font-family: 'Arial', sans-serif;
   padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+    align-items: flex-start;
+    padding-top: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 10px;
+    padding-top: 15px;
+  }
 `
 
 const setupCardStyle = css`
@@ -415,6 +429,21 @@ const setupCardStyle = css`
   max-width: 600px;
   width: 100%;
   text-align: center;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  
+  @media (max-width: 768px) {
+    padding: 30px;
+    border-radius: 15px;
+    max-height: calc(100vh - 30px);
+  }
+  
+  @media (max-width: 480px) {
+    padding: 20px;
+    border-radius: 12px;
+    max-height: calc(100vh - 20px);
+  }
 `
 
 const titleStyle = css`
@@ -423,6 +452,14 @@ const titleStyle = css`
   font-size: 48px;
   font-weight: 900;
   text-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  
+  @media (max-width: 768px) {
+    font-size: 36px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 28px;
+  }
 `
 
 const subtitleStyle = css`
@@ -430,6 +467,16 @@ const subtitleStyle = css`
   color: rgba(255, 255, 255, 0.8);
   font-size: 16px;
   font-weight: 500;
+  
+  @media (max-width: 768px) {
+    margin: 0 0 30px 0;
+    font-size: 14px;
+  }
+  
+  @media (max-width: 480px) {
+    margin: 0 0 20px 0;
+    font-size: 12px;
+  }
 `
 
 const stepContainerStyle = css`
@@ -455,6 +502,15 @@ const optionsGridStyle = css`
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   margin-bottom: 20px;
+  
+  @media (max-width: 768px) {
+    gap: 15px;
+  }
+  
+  @media (max-width: 480px) {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 `
 
 const optionButtonStyle = css`
@@ -468,6 +524,19 @@ const optionButtonStyle = css`
   flex-direction: column;
   align-items: center;
   gap: 15px;
+  min-height: 44px; /* Touch target size */
+  
+  @media (max-width: 768px) {
+    padding: 25px 15px;
+    border-radius: 12px;
+    gap: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 20px 12px;
+    border-radius: 10px;
+    gap: 10px;
+  }
   
   :hover {
     background: rgba(255, 255, 255, 0.2);
@@ -475,12 +544,27 @@ const optionButtonStyle = css`
     transform: translateY(-5px);
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
   }
+  
+  @media (hover: none) {
+    :hover {
+      transform: none;
+      background: rgba(255, 255, 255, 0.15);
+    }
+  }
 `
 
 
 
 const optionIconStyle = css`
   font-size: 48px;
+  
+  @media (max-width: 768px) {
+    font-size: 40px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 32px;
+  }
 `
 
 const optionTextStyle = css`
@@ -492,11 +576,23 @@ const optionTitleStyle = css`
   font-size: 18px;
   font-weight: 700;
   margin-bottom: 5px;
+  
+  @media (max-width: 768px) {
+    font-size: 16px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 14px;
+  }
 `
 
 const optionDescStyle = css`
   color: rgba(255, 255, 255, 0.7);
   font-size: 12px;
+  
+  @media (max-width: 480px) {
+    font-size: 11px;
+  }
 `
 
 const playerCountGridStyle = css`
@@ -583,6 +679,12 @@ const gameOptionsGridStyle = css`
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
     gap: 20px;
+    margin-bottom: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 15px;
+    margin-bottom: 15px;
   }
 `
 
@@ -591,6 +693,16 @@ const optionSectionStyle = css`
   border-radius: 15px;
   padding: 20px;
   border: 2px solid rgba(255, 255, 255, 0.1);
+  
+  @media (max-width: 768px) {
+    padding: 15px;
+    border-radius: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+    border-radius: 10px;
+  }
 `
 
 const gameOptionTitleStyle = css`
@@ -619,10 +731,30 @@ const configButtonStyle = css`
   transition: all 0.3s ease;
   flex: 1;
   min-width: fit-content;
+  min-height: 44px; /* Touch target size */
+  
+  @media (max-width: 768px) {
+    padding: 12px 18px;
+    font-size: 14px;
+    border-radius: 6px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 14px 20px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
   
   :hover {
     background: rgba(255, 255, 255, 0.2);
     transform: translateY(-2px);
+  }
+  
+  @media (hover: none) {
+    :hover {
+      transform: none;
+      background: rgba(255, 255, 255, 0.15);
+    }
   }
 `
 
@@ -647,6 +779,10 @@ const sliderStyle = css`
   outline: none;
   -webkit-appearance: none;
   
+  @media (max-width: 480px) {
+    height: 8px; /* Easier to touch on mobile */
+  }
+  
   ::-webkit-slider-thumb {
     appearance: none;
     width: 20px;
@@ -655,6 +791,11 @@ const sliderStyle = css`
     background: #FFD700;
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    
+    @media (max-width: 480px) {
+      width: 24px;
+      height: 24px;
+    }
   }
   
   ::-moz-range-thumb {
@@ -665,6 +806,11 @@ const sliderStyle = css`
     cursor: pointer;
     border: none;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    
+    @media (max-width: 480px) {
+      width: 24px;
+      height: 24px;
+    }
   }
 `
 
@@ -683,17 +829,36 @@ const configSummaryStyle = css`
   margin-bottom: 30px;
   text-align: center;
   
+  @media (max-width: 768px) {
+    padding: 15px;
+    margin-bottom: 20px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+  }
+  
   h4 {
     color: #FFD700;
     margin: 0 0 10px 0;
     font-size: 16px;
     font-weight: 700;
+    
+    @media (max-width: 480px) {
+      font-size: 14px;
+    }
   }
   
   p {
     color: rgba(255, 255, 255, 0.9);
     margin: 5px 0;
     font-size: 14px;
+    
+    @media (max-width: 480px) {
+      font-size: 12px;
+    }
   }
 `
 
