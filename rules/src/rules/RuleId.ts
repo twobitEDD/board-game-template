@@ -1,3 +1,4 @@
 export enum RuleId {
-  TheFirstStep = 1
+  PlayTile = 1,
+  DrawTile = 2
 }

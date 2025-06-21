@@ -1,3 +1,3 @@
-export { GameTemplateRules } from './GameTemplateRules'
-export { GameTemplateOptionsSpec } from './GameTemplateOptions'
-export { GameTemplateSetup } from './GameTemplateSetup'
+export { FivesRules } from './FivesRules'
+export { FivesOptionsSpec } from './FivesOptions'
+export { FivesSetup } from './FivesSetup'
