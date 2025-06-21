@@ -163,51 +163,57 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   // Always use local player data for now (bypass GamePark hooks that cause issues)
   const playerName = gameConfig.playerNames[0] || 'Player 1'
   
-  // Create initial draw pile with enough tiles for all players
+  // Create initial draw pile scaled from original 36-tile distribution
   const createInitialDrawPile = (): NumberTileId[] => {
     const pile: NumberTileId[] = []
-    const totalTilesNeeded = gameConfig.playerCount * gameConfig.tilesPerPlayer
+    const totalTilesNeeded = gameConfig.playerCount * gameConfig.tilesPerPlayer + 20 // +20 buffer
     
-    // Base tile distribution percentages
-    const tileTypes = [
-      { id: NumberTileId.Zero, weight: 5 },   // 5% - rare
-      { id: NumberTileId.One, weight: 12 },   // 12%
-      { id: NumberTileId.Two, weight: 12 },   // 12%
-      { id: NumberTileId.Three, weight: 12 }, // 12%
-      { id: NumberTileId.Four, weight: 12 },  // 12%
-      { id: NumberTileId.Five, weight: 15 },  // 15% - key number
-      { id: NumberTileId.Six, weight: 12 },   // 12%
-      { id: NumberTileId.Seven, weight: 12 }, // 12%
-      { id: NumberTileId.Eight, weight: 12 }, // 12%
-      { id: NumberTileId.Nine, weight: 5 }    // 5% - rare
-    ]
+    // Original 36-tile distribution (Scrabble-like)
+    const originalDistribution = {
+      [NumberTileId.Zero]: 2,    // 5.56% - rare endpoints
+      [NumberTileId.One]: 4,     // 11.11%
+      [NumberTileId.Two]: 4,     // 11.11%
+      [NumberTileId.Three]: 4,   // 11.11%
+      [NumberTileId.Four]: 4,    // 11.11%
+      [NumberTileId.Five]: 4,    // 11.11% - key number for multiples of 5
+      [NumberTileId.Six]: 4,     // 11.11%
+      [NumberTileId.Seven]: 4,   // 11.11%
+      [NumberTileId.Eight]: 4,   // 11.11%
+      [NumberTileId.Nine]: 2     // 5.56% - rare endpoints
+    }
     
-    // Generate tiles based on percentages
-    tileTypes.forEach(({ id, weight }) => {
-      const count = Math.ceil((totalTilesNeeded * weight) / 100)
+    // Calculate scale factor: how many times bigger than 36 tiles we need
+    const scaleFactor = totalTilesNeeded / 36
+    
+    // Scale each tile type proportionally, ensuring at least 1 of each
+    const scaledDistribution = Object.fromEntries(
+      Object.entries(originalDistribution).map(([tileId, originalCount]) => [
+        tileId,
+        Math.max(1, Math.round(originalCount * scaleFactor))
+      ])
+    ) as Record<NumberTileId, number>
+    
+    // Generate the scaled tiles
+    Object.entries(scaledDistribution).forEach(([tileIdStr, count]) => {
+      const tileId = parseInt(tileIdStr) as NumberTileId
       for (let i = 0; i < count; i++) {
-        pile.push(id)
+        pile.push(tileId)
       }
     })
     
-    // If we have fewer tiles than needed, fill with random tiles
-    while (pile.length < totalTilesNeeded) {
-      const randomType = tileTypes[Math.floor(Math.random() * tileTypes.length)]
-      pile.push(randomType.id)
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      const actualTotal = Object.values(scaledDistribution).reduce((sum, count) => sum + count, 0)
+      console.log(`🎲 Scaled ${actualTotal} tiles from base 36 (${scaleFactor.toFixed(1)}x scale)`)
+      console.log('Distribution:', scaledDistribution)
+      console.log(`For ${gameConfig.playerCount} players × ${gameConfig.tilesPerPlayer} tiles each = ${gameConfig.playerCount * gameConfig.tilesPerPlayer} needed`)
     }
     
-    // If we have more tiles than needed, trim to exact amount
-    if (pile.length > totalTilesNeeded) {
-      pile.splice(totalTilesNeeded)
-    }
-    
-    // Shuffle the pile
+    // Shuffle the pile thoroughly
     for (let i = pile.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pile[i], pile[j]] = [pile[j], pile[i]]
     }
-    
-    console.log(`🎲 Created ${pile.length} tiles for ${gameConfig.playerCount} players (${gameConfig.tilesPerPlayer} each)`)
     
     return pile
   }
