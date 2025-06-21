@@ -6,6 +6,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 
 import { GameConfig } from './GameSetup'
 import { GameBoard } from './GameBoard'
+import { TurnSummaryModal } from './TurnSummaryModal'
+import { EndGameModal } from './EndGameModal'
 
 // Simplified global styles
 const globalStyles = css`
@@ -161,34 +163,51 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   // Always use local player data for now (bypass GamePark hooks that cause issues)
   const playerName = gameConfig.playerNames[0] || 'Player 1'
   
-  // Create initial draw pile with all tiles
+  // Create initial draw pile with enough tiles for all players
   const createInitialDrawPile = (): NumberTileId[] => {
     const pile: NumberTileId[] = []
-    // Add multiple copies of each number (like Scrabble)
-    const tileDistribution = {
-      [NumberTileId.Zero]: 2,
-      [NumberTileId.One]: 4,
-      [NumberTileId.Two]: 4,
-      [NumberTileId.Three]: 4,
-      [NumberTileId.Four]: 4,
-      [NumberTileId.Five]: 4,
-      [NumberTileId.Six]: 4,
-      [NumberTileId.Seven]: 4,
-      [NumberTileId.Eight]: 4,
-      [NumberTileId.Nine]: 2
-    }
+    const totalTilesNeeded = gameConfig.playerCount * gameConfig.tilesPerPlayer
     
-    Object.entries(tileDistribution).forEach(([tileId, count]) => {
+    // Base tile distribution percentages
+    const tileTypes = [
+      { id: NumberTileId.Zero, weight: 5 },   // 5% - rare
+      { id: NumberTileId.One, weight: 12 },   // 12%
+      { id: NumberTileId.Two, weight: 12 },   // 12%
+      { id: NumberTileId.Three, weight: 12 }, // 12%
+      { id: NumberTileId.Four, weight: 12 },  // 12%
+      { id: NumberTileId.Five, weight: 15 },  // 15% - key number
+      { id: NumberTileId.Six, weight: 12 },   // 12%
+      { id: NumberTileId.Seven, weight: 12 }, // 12%
+      { id: NumberTileId.Eight, weight: 12 }, // 12%
+      { id: NumberTileId.Nine, weight: 5 }    // 5% - rare
+    ]
+    
+    // Generate tiles based on percentages
+    tileTypes.forEach(({ id, weight }) => {
+      const count = Math.ceil((totalTilesNeeded * weight) / 100)
       for (let i = 0; i < count; i++) {
-        pile.push(parseInt(tileId) as NumberTileId)
+        pile.push(id)
       }
     })
+    
+    // If we have fewer tiles than needed, fill with random tiles
+    while (pile.length < totalTilesNeeded) {
+      const randomType = tileTypes[Math.floor(Math.random() * tileTypes.length)]
+      pile.push(randomType.id)
+    }
+    
+    // If we have more tiles than needed, trim to exact amount
+    if (pile.length > totalTilesNeeded) {
+      pile.splice(totalTilesNeeded)
+    }
     
     // Shuffle the pile
     for (let i = pile.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pile[i], pile[j]] = [pile[j], pile[i]]
     }
+    
+    console.log(`🎲 Created ${pile.length} tiles for ${gameConfig.playerCount} players (${gameConfig.tilesPerPlayer} each)`)
     
     return pile
   }
@@ -201,12 +220,13 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 7, y: 7 } }
   ])
   
-  // Each player has their own hand
+  // Each player has their own hand (always 5 tiles)
   const [playerHands, setPlayerHands] = useState<TileItem[][]>(() => {
     const hands: TileItem[][] = []
     let tileIndex = 0
     
     for (let playerIndex = 0; playerIndex < gameConfig.playerCount; playerIndex++) {
+      // Each player starts with 5 tiles in hand
       const playerHand = initialPile.slice(tileIndex, tileIndex + 5).map((tileId: NumberTileId, index: number) => ({
         id: tileId,
         uniqueId: `hand-p${playerIndex}-${Date.now()}-${index}`,
@@ -219,9 +239,25 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     return hands
   })
   
-  // Draw pile starts after all players get their initial hands
-  const [drawPile, setDrawPile] = useState<NumberTileId[]>(() => 
-    initialPile.slice(gameConfig.playerCount * 5)
+  // Each player has their own personal draw pile (remaining tiles from their stake)
+  const [playerDrawPiles, setPlayerDrawPiles] = useState<NumberTileId[][]>(() => {
+    const piles: NumberTileId[][] = []
+    let tileIndex = 5 * gameConfig.playerCount // Skip the initial hands
+    
+    for (let playerIndex = 0; playerIndex < gameConfig.playerCount; playerIndex++) {
+      // Each player's remaining tiles (tilesPerPlayer - 5 for their starting hand)
+      const remainingTiles = gameConfig.tilesPerPlayer - 5
+      const playerPile = initialPile.slice(tileIndex, tileIndex + remainingTiles)
+      piles.push(playerPile)
+      tileIndex += remainingTiles
+    }
+    
+    return piles
+  })
+  
+  // Shared draw pile for any remaining tiles (shouldn't be needed but for safety)
+  const [drawPile] = useState<NumberTileId[]>(() => 
+    initialPile.slice(gameConfig.playerCount * gameConfig.tilesPerPlayer)
   )
   
   const [selectedTile, setSelectedTile] = useState<TileItem | null>(null)
@@ -256,6 +292,17 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       : `${currentPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
   )
 
+  // Modal states
+  const [showTurnSummary, setShowTurnSummary] = useState(false)
+  const [showEndGame, setShowEndGame] = useState(false)
+  const [lastTurnData, setLastTurnData] = useState<{
+    sequences: Array<{ tiles: TileItem[]; sum: number }>
+    tilesPlaced: TileItem[]
+    turnScore: number
+    totalScore: number
+  } | null>(null)
+  const [gameStartTime] = useState(Date.now())
+
   // Performance monitoring and cleanup (simplified to prevent re-render loops)
   useEffect(() => {
     // Monitor performance every 10 turns
@@ -278,10 +325,11 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   // Update parent component with game data (simplified to prevent infinite loops)
   useEffect(() => {
     if (onGameDataUpdate) {
+      const currentPlayerPile = playerDrawPiles[currentPlayerIndex] || []
       onGameDataUpdate({
         playerScores,
         turnNumber,
-        tilesRemaining: drawPile.length + handTiles.length,
+        tilesRemaining: currentPlayerPile.length + handTiles.length,
         gameMessage,
         currentPlayerIndex
       })
@@ -376,8 +424,17 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   }
 
   const drawTilesFromPile = (count: number): NumberTileId[] => {
-    const drawnTiles = drawPile.slice(0, count)
-    setDrawPile(prev => prev.slice(count))
+    // Draw from current player's personal pile
+    const currentPlayerPile = playerDrawPiles[currentPlayerIndex] || []
+    const drawnTiles = currentPlayerPile.slice(0, count)
+    
+    // Update the current player's draw pile
+    setPlayerDrawPiles(prev => {
+      const newPiles = [...prev]
+      newPiles[currentPlayerIndex] = newPiles[currentPlayerIndex].slice(count)
+      return newPiles
+    })
+    
     return drawnTiles
   }
 
@@ -470,9 +527,18 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       newScores[currentPlayerIndex] = newTotalScore
       return newScores
     })
+
+    // Store turn data for summary modal
+    setLastTurnData({
+      sequences: turnSequences,
+      tilesPlaced: [...tilesPlacedThisTurn], // Copy array
+      turnScore: finalTurnScore,
+      totalScore: newTotalScore
+    })
     
-    // Draw new tiles to refill hand to 5 tiles
-    const tilesNeeded = Math.min(5 - handTiles.length, drawPile.length)
+    // Draw new tiles to maintain exactly 5 tiles in hand
+    const playerPile = playerDrawPiles[currentPlayerIndex] || []
+    const tilesNeeded = Math.min(5 - handTiles.length, playerPile.length)
     if (tilesNeeded > 0) {
       const newTiles = drawTilesFromPile(tilesNeeded)
       const newHandTiles = newTiles.map((tileId, index) => ({
@@ -520,18 +586,23 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     setGameMessage(message)
     
     // Check for game end conditions
-    if (handTiles.length === 0 && drawPile.length === 0) {
-      if (gameConfig.playerCount === 1) {
-        setGameMessage(`🎯 Practice Complete! Final Score: ${newTotalScore} points! Great job!`)
+    const currentPlayerPile = playerDrawPiles[currentPlayerIndex] || []
+    const isGameEnd = (handTiles.length === 0 && currentPlayerPile.length === 0) || newTotalScore >= gameConfig.winningScore || turnNumber >= 100
+    
+    if (isGameEnd) {
+      // Show end game modal instead of turn summary
+      setTimeout(() => setShowEndGame(true), 500) // Small delay for better UX
+      
+              if (handTiles.length === 0 && currentPlayerPile.length === 0) {
+          setGameMessage(`🎯 Game Complete! ${gameConfig.playerNames[currentPlayerIndex]} played all their tiles!`)
+      } else if (newTotalScore >= gameConfig.winningScore) {
+        setGameMessage(`🏆 Victory! ${newTotalScore} points reached!`)
       } else {
-        setGameMessage(`🏆 Game Over! Final Score: ${newTotalScore} points!`)
+        setGameMessage(`⏰ Game Complete! Turn limit reached.`)
       }
-    } else if (newTotalScore >= 500) {
-      if (gameConfig.playerCount === 1) {
-        setGameMessage(`🎯 Excellent! You reached ${newTotalScore} points! Ready for multiplayer?`)
-      } else {
-        setGameMessage(`🏆 Congratulations! You reached ${newTotalScore} points and won the game!`)
-      }
+    } else {
+      // Show turn summary modal for regular turns
+      setTimeout(() => setShowTurnSummary(true), 300) // Small delay for better UX
     }
   }
 
@@ -545,8 +616,9 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return newScores
     })
     
-    // Draw one tile if possible
-    if (drawPile.length > 0 && handTiles.length < 5) {
+    // Draw one tile if possible from personal pile
+    const personalPile = playerDrawPiles[currentPlayerIndex] || []
+    if (personalPile.length > 0 && handTiles.length < 5) {
       const newTiles = drawTilesFromPile(1)
       const newHandTile = {
         id: newTiles[0],
@@ -841,6 +913,62 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       case NumberTileId.Eight: return 8
       case NumberTileId.Nine: return 9
       default: return 0
+    }
+  }
+
+  // Helper functions for modal data
+  const formatGameTime = () => {
+    const totalMs = Date.now() - gameStartTime
+    const minutes = Math.floor(totalMs / 60000)
+    const seconds = Math.floor((totalMs % 60000) / 1000)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  const calculatePlayerStats = (playerIndex: number) => {
+    const score = playerScores[playerIndex] || 0
+    const turns = Math.max(1, turnNumber - 1) // Avoid division by zero
+    return {
+      name: gameConfig.playerNames[playerIndex] || `Player ${playerIndex + 1}`,
+      score: score,
+      turns: turns,
+      totalTilesPlaced: boardTiles.length - 1, // Subtract center tile
+      longestSequence: 5, // TODO: Calculate actual longest sequence
+      averageScore: score / turns
+    }
+  }
+
+  const determineWinnerAndLoser = () => {
+    if (gameConfig.playerCount === 1) {
+      return {
+        winner: calculatePlayerStats(0),
+        loser: undefined
+      }
+    }
+
+    // Find the player with the highest score
+    const maxScore = Math.max(...playerScores)
+    const winnerIndex = playerScores.findIndex(score => score === maxScore)
+    
+    // Find the player with the second highest score (or any other player for loser)
+    const loserIndex = playerScores.findIndex((_, index) => index !== winnerIndex)
+    
+    return {
+      winner: calculatePlayerStats(winnerIndex),
+      loser: loserIndex !== -1 ? calculatePlayerStats(loserIndex) : undefined
+    }
+  }
+
+  const generateMockWinnings = (winnerScore: number) => {
+    // Mock winnings for demo - in real game this would come from game logic
+    const mockTiles: TileItem[] = Array.from({ length: 15 }, (_, i) => ({
+      id: (i % 10) as NumberTileId,
+      uniqueId: `won-${i}`,
+      location: { type: 'Won' }
+    }))
+    
+    return {
+      tiles: mockTiles,
+      cash: 150.75 + (winnerScore * 0.1)
     }
   }
 
@@ -1305,6 +1433,41 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
           </div>
         </div>
       </div>
+
+      {/* Turn Summary Modal */}
+      {lastTurnData && (
+        <TurnSummaryModal
+          isOpen={showTurnSummary}
+          onClose={() => setShowTurnSummary(false)}
+          turnNumber={turnNumber - 1}
+          playerName={currentPlayer}
+          tilesPlaced={lastTurnData.tilesPlaced}
+          sequences={lastTurnData.sequences}
+          turnScore={lastTurnData.turnScore}
+          totalScore={lastTurnData.totalScore}
+        />
+      )}
+
+      {/* End Game Modal */}
+      {(() => {
+        const { winner, loser } = determineWinnerAndLoser()
+        return (
+          <EndGameModal
+            isOpen={showEndGame}
+            onClose={() => setShowEndGame(false)}
+            winner={winner}
+            loser={loser}
+            gameStats={{
+              totalTurns: turnNumber - 1,
+              totalTilesPlaced: boardTiles.length - 1,
+              totalSequences: Math.floor((boardTiles.length - 1) / 2), // Rough estimate
+              gameTime: formatGameTime()
+            }}
+            potValue={350.50} // Mock pot value
+            winnings={generateMockWinnings(winner.score)}
+          />
+        )
+      })()}
     </div>
   )
 }

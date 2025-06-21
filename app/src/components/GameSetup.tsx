@@ -10,13 +10,21 @@ export interface GameConfig {
   playType: 'local' | 'online'
   playerCount: number
   playerNames: string[]
+  winningScore: 2500 | 5000 | 10000
+  tilesPerPlayer: number // 42-69
+  explosionsEnabled: boolean
+  payoutMode: 'winner-take-all' | 'split-by-score'
 }
 
 export function GameSetup({ onStartGame }: GameSetupProps) {
   const [playType, setPlayType] = useState<'local' | 'online' | null>(null)
   const [playerCount, setPlayerCount] = useState<number | null>(null)
   const [playerNames, setPlayerNames] = useState<string[]>([])
-  const [currentStep, setCurrentStep] = useState<'playType' | 'playerCount' | 'playerNames'>('playType')
+  const [winningScore, setWinningScore] = useState<2500 | 5000 | 10000>(2500)
+  const [tilesPerPlayer, setTilesPerPlayer] = useState<number>(50)
+  const [explosionsEnabled, setExplosionsEnabled] = useState<boolean>(false)
+  const [payoutMode, setPayoutMode] = useState<'winner-take-all' | 'split-by-score'>('winner-take-all')
+  const [currentStep, setCurrentStep] = useState<'playType' | 'playerCount' | 'playerNames' | 'gameOptions'>('playType')
 
   const handlePlayTypeSelect = (type: 'local' | 'online') => {
     setPlayType(type)
@@ -36,17 +44,9 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
       console.log('Going to player names step for local multiplayer')
       setCurrentStep('playerNames')
     } else {
-      // For online play or single player, start immediately with default names
-      console.log('Starting game immediately with config:', {
-        playType: playType!,
-        playerCount: count,
-        playerNames: names
-      })
-      onStartGame({
-        playType: playType!,
-        playerCount: count,
-        playerNames: names
-      })
+      // For online play or single player, go to game options
+      console.log('Going to game options step')
+      setCurrentStep('gameOptions')
     }
   }
 
@@ -54,6 +54,10 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
     const newNames = [...playerNames]
     newNames[index] = name // Allow empty names, don't force default
     setPlayerNames(newNames)
+  }
+
+  const handlePlayerNamesComplete = () => {
+    setCurrentStep('gameOptions')
   }
 
   const handleStartGame = () => {
@@ -65,13 +69,23 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
       onStartGame({
         playType,
         playerCount,
-        playerNames: finalNames
+        playerNames: finalNames,
+        winningScore,
+        tilesPerPlayer,
+        explosionsEnabled,
+        payoutMode
       })
     }
   }
 
   const handleBack = () => {
-    if (currentStep === 'playerNames') {
+    if (currentStep === 'gameOptions') {
+      if (playType === 'local' && playerCount && playerCount > 1) {
+        setCurrentStep('playerNames')
+      } else {
+        setCurrentStep('playerCount')
+      }
+    } else if (currentStep === 'playerNames') {
       setCurrentStep('playerCount')
     } else if (currentStep === 'playerCount') {
       setCurrentStep('playType')
@@ -237,9 +251,128 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
                   fontWeight: '700',
                   cursor: 'pointer'
                 }}
+                onClick={handlePlayerNamesComplete}
+              >
+                Next: Game Options →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {currentStep === 'gameOptions' && (
+          <div css={stepContainerStyle}>
+            <h2 css={stepTitleStyle}>Game Configuration</h2>
+            <p css={stepDescStyle}>Configure your betting game settings</p>
+            
+            <div css={gameOptionsGridStyle}>
+              {/* Winning Score */}
+              <div css={optionSectionStyle}>
+                <h3 css={gameOptionTitleStyle}>🎯 Winning Score</h3>
+                <div css={buttonGroupStyle}>
+                  {[2500, 5000, 10000].map(score => (
+                    <button
+                      key={score}
+                      css={[configButtonStyle, winningScore === score && selectedConfigStyle]}
+                      onClick={() => setWinningScore(score as 2500 | 5000 | 10000)}
+                    >
+                      {score.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tiles Per Player */}
+              <div css={optionSectionStyle}>
+                <h3 css={gameOptionTitleStyle}>🎲 Tiles Per Player</h3>
+                <div css={sliderContainerStyle}>
+                  <input
+                    type="range"
+                    min="42"
+                    max="69"
+                    value={tilesPerPlayer}
+                    onChange={(e) => setTilesPerPlayer(parseInt(e.target.value))}
+                    css={sliderStyle}
+                  />
+                  <div css={sliderValueStyle}>{tilesPerPlayer} tiles</div>
+                </div>
+              </div>
+
+              {/* Explosions Mode */}
+              <div css={optionSectionStyle}>
+                <h3 css={gameOptionTitleStyle}>💥 Game Mode</h3>
+                <div css={buttonGroupStyle}>
+                  <button
+                    css={[configButtonStyle, !explosionsEnabled && selectedConfigStyle]}
+                    onClick={() => setExplosionsEnabled(false)}
+                  >
+                    🕊️ Peaceful
+                  </button>
+                  <button
+                    css={[configButtonStyle, explosionsEnabled && selectedConfigStyle]}
+                    onClick={() => setExplosionsEnabled(true)}
+                  >
+                    💥 Explosions
+                  </button>
+                </div>
+              </div>
+
+              {/* Payout Mode */}
+              <div css={optionSectionStyle}>
+                <h3 css={gameOptionTitleStyle}>💰 Payout Structure</h3>
+                <div css={buttonGroupStyle}>
+                  <button
+                    css={[configButtonStyle, payoutMode === 'winner-take-all' && selectedConfigStyle]}
+                    onClick={() => setPayoutMode('winner-take-all')}
+                  >
+                    🏆 Winner Takes All
+                  </button>
+                  <button
+                    css={[configButtonStyle, payoutMode === 'split-by-score' && selectedConfigStyle]}
+                    onClick={() => setPayoutMode('split-by-score')}
+                  >
+                    📊 Split by Score
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div css={configSummaryStyle}>
+              <h4>Game Summary:</h4>
+              <p>Target: {winningScore.toLocaleString()} points • {tilesPerPlayer} tiles per player</p>
+              <p>Mode: {explosionsEnabled ? 'Explosions Enabled' : 'Peaceful'} • Payout: {payoutMode === 'winner-take-all' ? 'Winner Takes All' : 'Split by Score'}</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button 
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '2px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '10px',
+                  padding: '12px 24px',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+                onClick={handleBack}
+              >
+                ← Back
+              </button>
+              <button 
+                style={{
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '12px 32px',
+                  color: '#000',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                }}
                 onClick={handleStartGame}
               >
-                Start Game 🚀
+                Start Game! 🚀
               </button>
             </div>
           </div>
@@ -249,10 +382,10 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
           <div css={rulesSummaryStyle}>
             <h3>Quick Rules:</h3>
             <ul>
-              <li>Place number tiles to create sequences</li>
-              <li>Sequences must sum to multiples of 5</li>
-              <li>Score points for valid sequences</li>
-              <li>First to 500 points wins!</li>
+              <li>Bring your tile collection to bet in the game</li>
+              <li>See 5 tiles in your hand at a time</li>
+              <li>Place tiles to create sequences summing to multiples of 5</li>
+              <li>First to reach target score or exhaust tiles wins!</li>
             </ul>
           </div>
         </div>
@@ -438,6 +571,129 @@ const rulesSummaryStyle = css`
     li {
       margin-bottom: 5px;
     }
+  }
+`
+
+const gameOptionsGridStyle = css`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-bottom: 30px;
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+`
+
+const optionSectionStyle = css`
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 15px;
+  padding: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+`
+
+const gameOptionTitleStyle = css`
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 15px 0;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+`
+
+const buttonGroupStyle = css`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+`
+
+const configButtonStyle = css`
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 10px 16px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: fit-content;
+  
+  :hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+  }
+`
+
+const selectedConfigStyle = css`
+  background: rgba(255, 215, 0, 0.2) !important;
+  border-color: #FFD700 !important;
+  color: #FFD700 !important;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+`
+
+const sliderContainerStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
+const sliderStyle = css`
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  -webkit-appearance: none;
+  
+  ::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #FFD700;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  
+  ::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #FFD700;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+`
+
+const sliderValueStyle = css`
+  color: #FFD700;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+`
+
+const configSummaryStyle = css`
+  background: rgba(255, 215, 0, 0.1);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 30px;
+  text-align: center;
+  
+  h4 {
+    color: #FFD700;
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  
+  p {
+    color: rgba(255, 255, 255, 0.9);
+    margin: 5px 0;
+    font-size: 14px;
   }
 `
 
