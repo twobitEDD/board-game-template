@@ -77,12 +77,14 @@ export function GameDisplay() {
             </div>
           </div>
           
-          <QuiltedRetroSurface padding="12px" color="#D4CCC4">
-            <FivesGameBoard 
-              gameConfig={gameConfig} 
-              onGameDataUpdate={handleGameDataUpdate}
-            />
-          </QuiltedRetroSurface>
+          <div css={gameBoardWrapperFixStyle}>
+            <QuiltedRetroSurface padding="12px" color="#D4CCC4">
+              <FivesGameBoard 
+                gameConfig={gameConfig} 
+                onGameDataUpdate={handleGameDataUpdate}
+              />
+            </QuiltedRetroSurface>
+          </div>
           
                      <div css={retroMessageStyle}>
              <RetroEmbroideredText size="0.8rem" color="#8A7B85">
@@ -184,6 +186,7 @@ const retroWorkshopStyle = css`
   padding: 16px;
   min-height: 100vh;
   position: relative;
+  gap: 16px;
   
   /* PS2-era workshop table */
   background: 
@@ -215,7 +218,7 @@ const retroWorkshopStyle = css`
 
 const retroWorkshopHeaderStyle = css`
   text-align: center;
-  margin-bottom: 16px;
+  flex-shrink: 0; /* Prevent from shrinking */
   padding: 12px;
   background: rgba(224, 216, 208, 0.8);
   border: 2px solid rgba(107, 91, 115, 0.4);
@@ -241,7 +244,7 @@ const retroWorkshopInfoStyle = css`
 `
 
 const retroMessageStyle = css`
-  margin-top: 12px;
+  flex-shrink: 0; /* Prevent from shrinking */
   padding: 8px;
   background: rgba(168, 128, 156, 0.2);
   border: 2px solid rgba(107, 91, 115, 0.4);
@@ -310,5 +313,15 @@ const retroCraftingPanelStyle = css`
       20% 0%, 80% 0%, 100% 20%, 100% 80%, 
       80% 100%, 20% 100%, 0% 80%, 0% 20%
     );
+  }
+`
+
+const gameBoardWrapperFixStyle = css`
+  flex: 1; /* This will make it take all available space */
+  display: flex;
+  min-height: 0; /* Critical for flex children */
+  
+  > div {
+    flex: 1;
   }
 `

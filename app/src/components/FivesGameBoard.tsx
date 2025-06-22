@@ -50,6 +50,42 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   const performanceIssueCountRef = useRef<number>(0)
   const lastPerformanceCheckRef = useRef<number>(0)
 
+  // Challenge mode state (only for solo play)
+  const [challengeTimer, setChallengeTimer] = useState<number>(0)
+  const [moveCount, setMoveCount] = useState<number>(0)
+  const [mistakeCount, setMistakeCount] = useState<number>(0)
+  const [challengeFailed, setChallengeFailed] = useState<boolean>(false)
+  
+  // Challenge mode configurations
+  const challengeConfig = useMemo(() => {
+    if (gameConfig.playerCount !== 1 || !gameConfig.soloChallenge) return null
+    
+    switch (gameConfig.soloChallenge) {
+      case 'speedrun':
+        return {
+          timeLimit: 300000, // 5 minutes in milliseconds
+          showTimer: true,
+          description: 'Complete before time runs out!'
+        }
+      case 'perfectionist':
+        return {
+          maxMistakes: 0,
+          showMistakes: true,
+          description: 'No mistakes allowed - every move must be perfect!'
+        }
+      case 'minimalist':
+        return {
+          maxMoves: Math.ceil(gameConfig.winningScore / 150), // Rough estimate
+          showMoves: true,
+          description: 'Use the fewest moves possible!'
+        }
+      default: // classic
+        return {
+          description: 'Play at your own pace and enjoy the quilting!'
+        }
+    }
+  }, [gameConfig])
+
   // Debounced score calculation (delays expensive calculations)
   const debouncedCalculateScore = useCallback((boardTiles: TileItem[], placedTiles: TileItem[]) => {
     // Prevent infinite loops by checking if we're already calculating
@@ -218,16 +254,16 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     return pile
   }
 
-  // Initialize game state with useMemo to ensure consistency
-  const initialPile = useMemo(() => createInitialDrawPile(), [])
-  
   // Game state
   const [boardTiles, setBoardTiles] = useState<TileItem[]>([
     { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 7, y: 7 } }
   ])
   
-  // Each player has their own hand (always 5 tiles)
+  // Each player has their own hand (always 5 tiles) - CREATE PILE HERE FIRST
   const [playerHands, setPlayerHands] = useState<TileItem[][]>(() => {
+    // Create the pile directly here to avoid timing issues
+    const initialPile = createInitialDrawPile()
+    
     const hands: TileItem[][] = []
     let tileIndex = 0
     
@@ -245,15 +281,20 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     return hands
   })
   
+  // Initialize game state with useMemo to ensure consistency (use same creation function)
+  const initialPile = useMemo(() => createInitialDrawPile(), [])
+  
   // Each player has their own personal draw pile (remaining tiles from their stake)
   const [playerDrawPiles, setPlayerDrawPiles] = useState<NumberTileId[][]>(() => {
+    // Create pile again for draw piles (they need to be consistent)
+    const pile = createInitialDrawPile()
     const piles: NumberTileId[][] = []
     let tileIndex = 5 * gameConfig.playerCount // Skip the initial hands
     
     for (let playerIndex = 0; playerIndex < gameConfig.playerCount; playerIndex++) {
       // Each player's remaining tiles (tilesPerPlayer - 5 for their starting hand)
       const remainingTiles = gameConfig.tilesPerPlayer - 5
-      const playerPile = initialPile.slice(tileIndex, tileIndex + remainingTiles)
+      const playerPile = pile.slice(tileIndex, tileIndex + remainingTiles)
       piles.push(playerPile)
       tileIndex += remainingTiles
     }
@@ -294,9 +335,30 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   
   const [gameMessage, setGameMessage] = useState(
     gameConfig.playerCount === 1 
-      ? `Welcome to Solo Practice, ${gameConfig.playerNames[0]}! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
+      ? `Welcome to ${gameConfig.soloChallenge === 'classic' ? 'Solo Practice' : `${gameConfig.soloChallenge?.charAt(0).toUpperCase()}${gameConfig.soloChallenge?.slice(1)} Challenge`}, ${gameConfig.playerNames[0]}! ${challengeConfig?.description || 'Place tiles in rows or columns that sum to multiples of 5.'}`
       : `${currentPlayer}'s turn! Place tiles in a single row or column that adds to a multiple of 5. Max 5 tiles per sequence.`
   )
+
+  // Timer for speedrun mode
+  useEffect(() => {
+    if (challengeConfig?.showTimer && !challengeFailed) {
+      const interval = setInterval(() => {
+        setChallengeTimer(prev => {
+          const newTime = prev + 1000
+          if (challengeConfig.timeLimit && newTime >= challengeConfig.timeLimit) {
+            setChallengeFailed(true)
+            setGameMessage("⏰ Time's up! Challenge failed. But you can keep playing for practice!")
+            clearInterval(interval)
+          }
+          return newTime
+        })
+      }, 1000)
+      
+      return () => clearInterval(interval)
+    }
+    
+    return undefined
+  }, [challengeConfig, challengeFailed])
 
   // Modal states
   const [showTurnSummary, setShowTurnSummary] = useState(false)
@@ -425,13 +487,18 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     updateCurrentPlayerHand(prev => prev.filter(tile => tile.uniqueId !== selectedTile.uniqueId))
     setSelectedTile(null)
     
-         // Use debounced calculation to reduce performance impact - but avoid infinite loops
-     setGameMessage(`🔄 ${newTilesPlacedThisTurn.length} tile(s) placed. Calculating score...`)
+    // Track move for challenge modes
+    if (challengeConfig?.showMoves) {
+      setMoveCount(prev => prev + 1)
+    }
+    
+    // Use debounced calculation to reduce performance impact - but avoid infinite loops
+    setGameMessage(`🔄 ${newTilesPlacedThisTurn.length} tile(s) placed. Calculating score...`)
      
-     // Trigger debounced score calculation only if not already calculating
-     if (!isCalculatingRef.current) {
-       debouncedCalculateScore(newBoardTiles, newTilesPlacedThisTurn)
-     }
+    // Trigger debounced score calculation only if not already calculating
+    if (!isCalculatingRef.current) {
+      debouncedCalculateScore(newBoardTiles, newTilesPlacedThisTurn)
+    }
   }
 
   const drawTilesFromPile = (count: number): NumberTileId[] => {
@@ -668,6 +735,18 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     if (tilesPlacedThisTurn.length === 0) {
       setGameMessage("No tiles to undo!")
       return
+    }
+
+    // Track mistake for perfectionist mode
+    if (challengeConfig?.showMistakes && tilesPlacedThisTurn.length > 0) {
+      const newMistakeCount = mistakeCount + 1
+      setMistakeCount(newMistakeCount)
+      
+      if (challengeConfig.maxMistakes !== undefined && newMistakeCount > challengeConfig.maxMistakes) {
+        setChallengeFailed(true)
+        setGameMessage("💎 Perfectionist Challenge Failed! No mistakes allowed. But you can keep playing for practice!")
+        return
+      }
     }
 
     // Remove tiles from board
@@ -1348,6 +1427,21 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
                 <span>Draw Pile: {drawPile.length}</span>
                 <span>Hand: {handTiles.length}</span>
                 {selectedTile && <span>Selected: {getTileValue(selectedTile.id)}</span>}
+                {challengeConfig?.showTimer && (
+                  <span css={challengeTimerStyle}>
+                    ⏰ {Math.floor((challengeConfig.timeLimit! - challengeTimer) / 60000)}:{String(Math.floor(((challengeConfig.timeLimit! - challengeTimer) % 60000) / 1000)).padStart(2, '0')}
+                  </span>
+                )}
+                {challengeConfig?.showMoves && (
+                  <span css={challengeCounterStyle}>
+                    🎯 Moves: {moveCount}{challengeConfig.maxMoves ? `/${challengeConfig.maxMoves}` : ''}
+                  </span>
+                )}
+                {challengeConfig?.showMistakes && (
+                  <span css={challengeCounterStyle}>
+                    💎 Mistakes: {mistakeCount}/{challengeConfig.maxMistakes || '∞'}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -1358,62 +1452,66 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
           {gameMessage}
         </div>
         
-        {/* Turn Status */}
-        {tilesPlacedThisTurn.length > 0 && (
-          <div css={turnStatusStyle}>
-            <div css={turnStatusMainStyle}>
-              <span css={turnStatusEssentialStyle}>
-                {tilesPlacedThisTurn.length} tiles • {turnScore}pts
-              </span>
-              <button 
-                css={expandButtonStyle}
-                onClick={() => setIsTurnStatusExpanded(!isTurnStatusExpanded)}
-              >
-                {isTurnStatusExpanded ? '▼' : '▶'}
-              </button>
-            </div>
-            {isTurnStatusExpanded && (
-              <div css={turnStatusExpandedStyle}>
-                {turnScore > 0 && (
-                  <div style={{ fontSize: '11px', opacity: 0.9 }}>
-                    {(() => {
-                      // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
-                      if (circularPatternDetectedRef.current) {
-                        return `Emergency mode - End turn to see scoring`
-                      }
-                      
-                      // Only recalculate sequences for display if we have a reasonable number of tiles
-                      if (tilesPlacedThisTurn.length > 3) {
-                        return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
-                      }
-                      
-                      try {
-                        const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
-                        return sequences.map(seq => {
-                          const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
-                          return `${tileValues}=${seq.sum}(×10)`
-                        }).join(' | ')
-                      } catch (error) {
-                        console.warn('⚠️ Error in sequence display calculation:', error)
-                        return `Calculating... End turn to see scores`
-                      }
-                    })()}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+
         
         {/* Game Board */}
-        <GameBoard
-          boardTiles={boardTiles}
-          tilesPlacedThisTurn={tilesPlacedThisTurn}
-          selectedTile={selectedTile}
-          onBoardClick={handleBoardClick}
-          onPlacedTileClick={handlePlacedTileClick}
-          isValidPlacement={isValidPlacement}
-        />
+        <div css={gameBoardWrapperStyle}>
+          {/* Turn Status - positioned over the board */}
+          {tilesPlacedThisTurn.length > 0 && (
+            <div css={turnStatusStyle}>
+              <div css={turnStatusMainStyle}>
+                <span css={turnStatusEssentialStyle}>
+                  {tilesPlacedThisTurn.length} tiles • {turnScore}pts
+                </span>
+                <button 
+                  css={expandButtonStyle}
+                  onClick={() => setIsTurnStatusExpanded(!isTurnStatusExpanded)}
+                >
+                  {isTurnStatusExpanded ? '▼' : '▶'}
+                </button>
+              </div>
+              {isTurnStatusExpanded && (
+                <div css={turnStatusExpandedStyle}>
+                  {turnScore > 0 && (
+                    <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                      {(() => {
+                        // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
+                        if (circularPatternDetectedRef.current) {
+                          return `Emergency mode - End turn to see scoring`
+                        }
+                        
+                        // Only recalculate sequences for display if we have a reasonable number of tiles
+                        if (tilesPlacedThisTurn.length > 3) {
+                          return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
+                        }
+                        
+                        try {
+                          const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
+                          return sequences.map(seq => {
+                            const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+                            return `${tileValues}=${seq.sum}(×10)`
+                          }).join(' | ')
+                        } catch (error) {
+                          console.warn('⚠️ Error in sequence display calculation:', error)
+                          return `Calculating... End turn to see scores`
+                        }
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
+          <GameBoard
+            boardTiles={boardTiles}
+            tilesPlacedThisTurn={tilesPlacedThisTurn}
+            selectedTile={selectedTile}
+            onBoardClick={handleBoardClick}
+            onPlacedTileClick={handlePlacedTileClick}
+            isValidPlacement={isValidPlacement}
+          />
+        </div>
         
         {/* Player Hand */}
         <div css={handStyle}>
@@ -1523,455 +1621,223 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
 // Contained, consistent styles
 const gameContainerStyle = css`
   width: 100%;
-  max-width: 900px;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  display: flex;
-  flex-direction: column;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: 
+    "header"
+    "board"
+    "hand";
   overflow: hidden;
-  
-  @media (max-width: 768px) {
-    border-radius: 15px;
-    border-width: 1px;
-    height: 100vh;
-  }
-  
-  @media (max-width: 480px) {
-    border-radius: 10px;
-    max-width: none;
-    margin: 0;
-  }
+  gap: 12px;
 `
 
 const gameContentStyle = css`
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 20px;
-  gap: 15px;
-  overflow: hidden;
-  
-  @media (max-width: 768px) {
-    padding: 15px;
-    gap: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 10px;
-    gap: 8px;
-  }
+  display: contents; /* Let child elements participate in parent grid */
 `
 
 const headerStyle = css`
-  background: rgba(255, 255, 255, 0.2);
+  grid-area: header;
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 10px;
-  flex-shrink: 0;
   overflow: hidden;
-  transition: all 0.3s ease;
-  
-  @media (max-width: 768px) {
-    border-radius: 8px;
-  }
+  flex-shrink: 0;
 `
 
 const headerMainStyle = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 15px;
-  min-height: 60px;
-  
-  @media (max-width: 768px) {
-    padding: 8px 12px;
-    min-height: 50px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 6px 10px;
-    min-height: 44px;
-  }
-`
-
-const headerEssentialStyle = css`
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  
-  @media (max-width: 768px) {
-    gap: 10px;
-  }
-  
-  @media (max-width: 480px) {
-    gap: 8px;
-  }
-`
-
-const currentPlayerStyle = css`
-  color: #FFD700;
-  font-size: 14px;
-  font-weight: 700;
-  
-  @media (max-width: 768px) {
-    font-size: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 11px;
-  }
-`
-
-const scoreStyle = css`
-  color: #4CAF50;
-  font-size: 16px;
-  font-weight: 900;
-  
-  @media (max-width: 768px) {
-    font-size: 14px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 12px;
-  }
-`
-
-const expandButtonStyle = css`
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  color: white;
-  padding: 4px 8px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-height: 28px;
-  min-width: 28px;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.3);
-  }
-  
-  @media (max-width: 480px) {
-    padding: 3px 6px;
-    font-size: 10px;
-    min-height: 24px;
-    min-width: 24px;
-  }
-`
-
-const headerExpandedStyle = css`
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 10px 15px;
-  background: rgba(255, 255, 255, 0.1);
-  animation: slideDown 0.3s ease;
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  @media (max-width: 768px) {
-    padding: 8px 12px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 6px 10px;
-  }
+  padding: 8px 12px;
 `
 
 const titleStyle = css`
   margin: 0;
   color: white;
-  font-size: 24px;
-  font-weight: 900;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-  
-  @media (max-width: 768px) {
-    font-size: 20px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 18px;
-  }
+  font-size: 20px;
+  font-weight: 700;
 `
+
+const headerEssentialStyle = css`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`
+
+const currentPlayerStyle = css`
+  color: #a7d129; // A vibrant green
+  font-weight: bold;
+`;
+
+const scoreStyle = css`
+  color: #FFD700;
+  font-size: 16px;
+  font-weight: 900;
+  background: rgba(0,0,0,0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+`
+
+const expandButtonStyle = css`
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 5px;
+`;
+
+const headerExpandedStyle = css`
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+`;
 
 const playerInfoStyle = css`
   display: flex;
-  gap: 20px;
-  color: rgba(255, 255, 255, 0.9);
+  justify-content: space-around;
   font-size: 12px;
-  font-weight: 600;
-  flex-wrap: wrap;
-  
-  @media (max-width: 768px) {
-    gap: 15px;
-    font-size: 11px;
-  }
-  
-  @media (max-width: 480px) {
-    gap: 10px;
-    font-size: 10px;
-  }
+  color: rgba(255, 255, 255, 0.8);
+`;
+
+const gameMessageStyle = css`
+  display: none; /* Hide the separate message bar for a cleaner look */
 `
 
 const turnStatusStyle = css`
-  background: rgba(76, 175, 80, 0.2);
-  border: 1px solid rgba(76, 175, 80, 0.4);
-  border-radius: 8px;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
   color: white;
-  flex-shrink: 0;
   overflow: hidden;
   transition: all 0.3s ease;
-  
-  @media (max-width: 768px) {
-    border-radius: 6px;
-  }
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(5px);
+  padding: 6px 12px;
 `
 
 const turnStatusMainStyle = css`
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 8px 15px;
-  min-height: 36px;
-  
-  @media (max-width: 768px) {
-    padding: 6px 12px;
-    min-height: 32px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 5px 10px;
-    min-height: 28px;
-  }
+  gap: 10px;
 `
 
 const turnStatusEssentialStyle = css`
   font-size: 12px;
   font-weight: 600;
-  
-  @media (max-width: 768px) {
-    font-size: 11px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 10px;
-  }
 `
 
 const turnStatusExpandedStyle = css`
-  border-top: 1px solid rgba(76, 175, 80, 0.3);
-  padding: 8px 15px;
-  background: rgba(76, 175, 80, 0.1);
-  animation: slideDown 0.3s ease;
-  
-  @media (max-width: 768px) {
-    padding: 6px 12px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 5px 10px;
-  }
+  padding-top: 6px;
+  margin-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+`;
+
+const gameBoardWrapperStyle = css`
+  grid-area: board;
+  overflow: hidden;
+  min-height: 0; /* Important for grid children */
+  display: flex;
 `
 
-
-
 const handStyle = css`
-  background: 
-    radial-gradient(circle at 20% 80%, rgba(238, 224, 201, 0.8) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(220, 208, 185, 0.6) 0%, transparent 50%),
-    linear-gradient(45deg, #f0e6d2 0%, #e8dcc6 50%, #d4c4a8 100%);
-  border: 3px solid #8b4513;
-  border-radius: 20px;
-  padding: 20px;
-  min-height: 140px;
-  max-height: 200px;
-  flex: 0 0 auto;
-  flex-shrink: 0;
-  margin-top: auto;
-  overflow: hidden;
-  box-shadow: 
-    inset 0 2px 10px rgba(0, 0, 0, 0.1),
-    0 4px 20px rgba(0, 0, 0, 0.2);
-  position: relative;
-  
-  /* Fabric texture overlay */
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: 
-      repeating-linear-gradient(
-        45deg,
-        transparent,
-        transparent 2px,
-        rgba(139, 69, 19, 0.1) 2px,
-        rgba(139, 69, 19, 0.1) 4px
-      );
-    pointer-events: none;
-    opacity: 0.5;
-  }
-  
-  /* Quilting stitches around border */
-  &::after {
-    content: '';
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    border: 2px dashed #8b4513;
-    border-radius: 12px;
-    pointer-events: none;
-    opacity: 0.4;
-  }
-  
-  @media (max-width: 768px) {
-    border-radius: 16px;
-    padding: 16px;
-    min-height: 120px;
-    max-height: 170px;
-  }
-  
-  @media (max-width: 480px) {
-    border-radius: 12px;
-    padding: 12px;
-    min-height: 100px;
-    max-height: 150px;
-  }
+  grid-area: hand;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  min-height: 120px;
+  max-height: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 8px;
 `
 
 const handHeaderStyle = css`
-  margin-bottom: 10px;
-  
-  @media (max-width: 768px) {
-    margin-bottom: 8px;
-  }
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
 `
 
 const handHeaderMainStyle = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
+`;
+
+const handLabelStyle = css`
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
 `
 
 const handEssentialActionsStyle = css`
   display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const handActionsExpandedStyle = css`
+  width: 100%;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+`;
+
+const handTilesStyle = css`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-height: 0;
+`
+
+const actionButtonsStyle = css`
+  display: flex;
   gap: 8px;
   align-items: center;
-  
-  @media (max-width: 480px) {
-    gap: 6px;
-  }
 `
 
 const endTurnButtonCompactStyle = css`
   background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 11px;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
-  min-height: 28px;
   
   &:hover {
-    background: linear-gradient(135deg, #45a049 0%, #4CAF50 100%);
     transform: translateY(-1px);
     box-shadow: 0 3px 8px rgba(76, 175, 80, 0.4);
   }
-  
-  &:active {
-    transform: translateY(0);
-  }
-  
-  @media (max-width: 480px) {
-    padding: 5px 10px;
-    font-size: 10px;
-    min-height: 24px;
-  }
 `
-
-const handActionsExpandedStyle = css`
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  padding-top: 8px;
-  margin-top: 8px;
-  animation: slideDown 0.3s ease;
-  
-  @media (max-width: 768px) {
-    padding-top: 6px;
-    margin-top: 6px;
-  }
-`
-
-const handLabelStyle = css`
-  color: #8b4513;
-  font-size: 14px;
-  font-weight: 800;
-  text-shadow: 
-    1px 1px 0px #d4c4a8,
-    2px 2px 2px rgba(139, 69, 19, 0.3);
-  font-family: 'Arial Black', Arial, sans-serif;
-  letter-spacing: 0.5px;
-  position: relative;
-  z-index: 2;
-  
-  /* Embroidered text effect */
-  &::after {
-    content: '🧶 PATCH COLLECTION 🧶';
-    position: absolute;
-    top: 0;
-    left: 0;
-    color: transparent;
-    -webkit-text-stroke: 1px rgba(139, 69, 19, 0.5);
-    z-index: -1;
-  }
-  
-  @media (max-width: 768px) {
-    font-size: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 11px;
-  }
-`
-
-
 
 const undoTurnButtonStyle = css`
-  background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   color: white;
-  border: none;
   border-radius: 8px;
-  padding: 8px 16px;
+  padding: 8px 12px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(156, 39, 176, 0.3);
   
   &:hover {
-    background: linear-gradient(135deg, #7B1FA2 0%, #9C27B0 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4);
-  }
-  
-  &:active {
-    transform: translateY(0);
+    background: rgba(255, 255, 255, 0.3);
   }
 `
 
@@ -1995,67 +1861,6 @@ const skipTurnButtonStyle = css`
   
   &:active {
     transform: translateY(0);
-  }
-`
-
-const handTilesStyle = css`
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  min-height: 80px;
-  padding: 15px;
-  background: 
-    linear-gradient(145deg, #f5f0e8 0%, #e8ddc8 100%),
-    radial-gradient(circle at 30% 70%, rgba(139, 69, 19, 0.1) 0%, transparent 50%);
-  border-radius: 15px;
-  border: 2px solid #8b4513;
-  box-shadow: 
-    inset 0 2px 8px rgba(139, 69, 19, 0.15),
-    0 2px 4px rgba(0, 0, 0, 0.1);
-  position: relative;
-  z-index: 1;
-  
-  /* Woven basket texture */
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: 
-      repeating-linear-gradient(
-        90deg,
-        transparent,
-        transparent 8px,
-        rgba(139, 69, 19, 0.05) 8px,
-        rgba(139, 69, 19, 0.05) 10px
-      ),
-      repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 8px,
-        rgba(139, 69, 19, 0.05) 8px,
-        rgba(139, 69, 19, 0.05) 10px
-      );
-    border-radius: 13px;
-    pointer-events: none;
-    opacity: 0.6;
-  }
-  
-  @media (max-width: 768px) {
-    gap: 10px;
-    padding: 12px;
-    min-height: 70px;
-    border-radius: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    gap: 8px;
-    padding: 10px;
-    min-height: 60px;
-    border-radius: 10px;
   }
 `
 
@@ -2085,53 +1890,6 @@ const emptyHandStyle = css`
   padding: 10px;
 `
 
-const gameMessageStyle = css`
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  text-align: center;
-  flex-shrink: 0;
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
-  @media (max-width: 768px) {
-    font-size: 14px;
-    padding: 8px;
-    min-height: 36px;
-    border-radius: 6px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 12px;
-    padding: 6px;
-    min-height: 32px;
-    line-height: 1.3;
-  }
-`
-
-const actionButtonsStyle = css`
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-  
-  @media (max-width: 768px) {
-    gap: 6px;
-  }
-  
-  @media (max-width: 480px) {
-    gap: 4px;
-    flex-direction: column;
-  }
-`
-
 const emergencyResetButtonStyle = css`
   background: linear-gradient(135deg, #F44336 0%, #D32F2F 100%);
   color: white;
@@ -2153,4 +1911,18 @@ const emergencyResetButtonStyle = css`
   &:active {
     transform: translateY(0);
   }
+`
+
+const challengeTimerStyle = css`
+  color: #FFD700;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 10px;
+`
+
+const challengeCounterStyle = css`
+  color: #a7d129;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 10px;
 `

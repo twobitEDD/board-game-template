@@ -78,7 +78,7 @@ export function GameBoard({
 }: GameBoardProps) {
   const [stitchTrigger, setStitchTrigger] = useState(0)
   const [lastStitchedPosition, setLastStitchedPosition] = useState({ x: 0, y: 0 })
-
+  
   // Track when new patches are sewn in
   useEffect(() => {
     if (tilesPlacedThisTurn.length > 0) {
@@ -250,71 +250,75 @@ export function GameBoard({
     <div css={quiltingWorkspaceStyle}>
       <FloatingYarnBalls />
       <StitchingRipple x={lastStitchedPosition.x} y={lastStitchedPosition.y} trigger={stitchTrigger} />
-      <div css={quiltGridStyle}>
-        {Array.from({ length: 15 }, (_, row) =>
-          Array.from({ length: 15 }, (_, col) => {
-            const posKey = `${col},${row}`
-            const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
-            const isCenterPin = row === 7 && col === 7
-            const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
-            const isOccupied = occupiedPositions.has(posKey)
-            const canSewHere = sewingPositions.has(posKey)
-            
-            const canPlacePatch = selectedTile && !isOccupied && canSewHere && validPlacements.has(posKey)
-            const blockedSewing = selectedTile && !isOccupied && canSewHere && !validPlacements.has(posKey)
-            
-            const sewingScale = canPlacePatch ? getSewingScale(col, row) : 0
-            
-            // Check for stitching connections
-            const hasRightStitch = quiltConnections.has(`${col},${row}-right`)
-            const hasDownStitch = quiltConnections.has(`${col},${row}-down`)
-            
-            return (
-              <div 
-                key={`${row}-${col}`} 
-                css={css`
-                  ${patchSlotStyle}
-                  ${isCenterPin ? centerPinStyle : ''}
-                  ${!boardTile ? emptySlotStyle : ''}
-                  ${canPlacePatch ? sewingSpotStyle(sewingScale) : ''}
-                  ${blockedSewing ? blockedSewingStyle : ''}
-                  ${isPlacedThisTurn ? newPatchGlowStyle : ''}
-                  ${isPlacedThisTurn ? clickablePatchSlotStyle : ''}
-                `}
-                onClick={() => {
-                  if (boardTile && isPlacedThisTurn) {
-                    onPlacedTileClick(boardTile)
-                  } else {
-                    onBoardClick(col, row)
-                  }
-                }}
-              >
-                {boardTile && (
-                  <div css={patchHolderStyle}>
-                    <NumberTile 
-                      tileId={boardTile.id} 
-                      size="large"
-                      isPlaced={!isPlacedThisTurn}
-                    />
-                    {isPlacedThisTurn && (
-                      <div css={returnIconStyle}>🧶</div>
-                    )}
-                    {isPlacedThisTurn && <div css={newPatchStitchingStyle} key={`stitch-${stitchTrigger}`} />}
-                  </div>
-                )}
-                
-                {/* Stitching connections to adjacent patches */}
-                {hasRightStitch && <div css={rightStitchStyle} />}
-                {hasDownStitch && <div css={downStitchStyle} />}
-                
-                {!boardTile && isCenterPin && <div css={centerPinCrystalStyle}>📍</div>}
-                {canPlacePatch && (
-                  <div css={sewingIndicatorStyle(sewingScale)}>🧷</div>
-                )}
-              </div>
-            )
-          })
-        )}
+      
+      <div css={quiltGridContainerStyle}>
+        <div css={quiltGridStyle}>
+          {Array.from({ length: 15 }, (_, row) =>
+            Array.from({ length: 15 }, (_, col) => {
+              const posKey = `${col},${row}`
+              const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
+              const isCenterPin = row === 7 && col === 7
+              const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
+              const isOccupied = occupiedPositions.has(posKey)
+              const canSewHere = sewingPositions.has(posKey)
+              
+              const canPlacePatch = selectedTile && !isOccupied && canSewHere && validPlacements.has(posKey)
+              const blockedSewing = selectedTile && !isOccupied && canSewHere && !validPlacements.has(posKey)
+              
+              const sewingScale = canPlacePatch ? getSewingScale(col, row) : 0
+              
+              // Check for stitching connections
+              const hasRightStitch = quiltConnections.has(`${col},${row}-right`)
+              const hasDownStitch = quiltConnections.has(`${col},${row}-down`)
+              
+              return (
+                <div 
+                  key={`${row}-${col}`} 
+                  css={css`
+                    ${patchSlotStyle}
+                    ${isCenterPin ? centerPinStyle : ''}
+                    ${!boardTile ? emptySlotStyle : ''}
+                    ${canPlacePatch ? sewingSpotStyle(sewingScale) : ''}
+                    ${blockedSewing ? blockedSewingStyle : ''}
+                    ${isPlacedThisTurn ? newPatchGlowStyle : ''}
+                    ${isPlacedThisTurn ? clickablePatchSlotStyle : ''}
+                  `}
+                  onClick={(e) => {
+                    if (boardTile && isPlacedThisTurn) {
+                      onPlacedTileClick(boardTile)
+                    } else {
+                      onBoardClick(col, row)
+                    }
+                    e.stopPropagation()
+                  }}
+                >
+                  {boardTile && (
+                    <div css={patchHolderStyle}>
+                      <NumberTile 
+                        tileId={boardTile.id} 
+                        size="large"
+                        isPlaced={!isPlacedThisTurn}
+                      />
+                      {isPlacedThisTurn && (
+                        <div css={returnIconStyle}>🧶</div>
+                      )}
+                      {isPlacedThisTurn && <div css={newPatchStitchingStyle} key={`stitch-${stitchTrigger}`} />}
+                    </div>
+                  )}
+                  
+                  {/* Stitching connections to adjacent patches */}
+                  {hasRightStitch && <div css={rightStitchStyle} />}
+                  {hasDownStitch && <div css={downStitchStyle} />}
+                  
+                  {!boardTile && isCenterPin && <div css={centerPinCrystalStyle}>📍</div>}
+                  {canPlacePatch && (
+                    <div css={sewingIndicatorStyle(sewingScale)}>🧷</div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
       </div>
     </div>
   )
@@ -369,7 +373,8 @@ const simpleGlow = keyframes`
 
 // Quilting workspace container
 const quiltingWorkspaceStyle = css`
-  flex: 1;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -382,9 +387,9 @@ const quiltingWorkspaceStyle = css`
       #F5E6D3 100%  /* Back to cream */
     );
   border-radius: 15px;
-  padding: 20px;
-  overflow: hidden;
-  min-height: 0;
+  padding: 15px;
+  overflow: auto;
+  scrollbar-gutter: stable;
   position: relative;
   
   /* Fabric texture pattern */
@@ -407,7 +412,18 @@ const quiltingWorkspaceStyle = css`
     inset 0 2px 4px rgba(255, 255, 255, 0.3);
   
   border: 3px solid rgba(139, 69, 19, 0.2);
-  scroll-behavior: smooth;
+  
+  @media (max-width: 768px) {
+    padding: 12px;
+    border-radius: 12px;
+    border-width: 2px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 10px;
+    border-radius: 10px;
+    border-width: 2px;
+  }
 `
 
 // Yarn ball container for floating ambiance
@@ -454,18 +470,23 @@ const quiltGridStyle = css`
   grid-template-columns: repeat(15, 1fr);
   grid-template-rows: repeat(15, 1fr);
   gap: 2px;
-  width: 100%;
-  min-width: 450px;
-  max-width: 600px;
+  width: 700px;
+  height: 700px;
   aspect-ratio: 1;
   margin: auto;
   position: relative;
   z-index: 2;
   
   @media (max-width: 768px) {
-    min-width: 350px;
-    max-width: 450px;
-    gap: 2px;
+    gap: 1px;
+    width: 600px;
+    height: 600px;
+  }
+  
+  @media (max-width: 480px) {
+    gap: 1px;
+    width: 500px;
+    height: 500px;
   }
 `
 
@@ -601,17 +622,19 @@ const newPatchStitchingStyle = css`
 // Stitching connections between adjacent patches
 const rightStitchStyle = css`
   position: absolute;
-  right: -2px;
+  right: -4px;
   top: 50%;
-  width: 4px;
-  height: 60%;
+  width: 8px;
+  height: 80%;
   background: repeating-linear-gradient(
     0deg,
-    rgba(139, 69, 19, 0.6) 0px,
-    rgba(139, 69, 19, 0.6) 2px,
-    transparent 2px,
-    transparent 4px
+    rgba(139, 69, 19, 0.85) 0px,
+    rgba(139, 69, 19, 0.85) 5px,
+    transparent 5px,
+    transparent 10px
   );
+  border-radius: 4px;
+  box-shadow: 0 0 2px rgba(139, 69, 19, 0.6);
   transform: translateY(-50%);
   pointer-events: none;
   z-index: 3;
@@ -619,17 +642,19 @@ const rightStitchStyle = css`
 
 const downStitchStyle = css`
   position: absolute;
-  bottom: -2px;
+  bottom: -4px;
   left: 50%;
-  width: 60%;
-  height: 4px;
+  width: 80%;
+  height: 8px;
   background: repeating-linear-gradient(
     90deg,
-    rgba(139, 69, 19, 0.6) 0px,
-    rgba(139, 69, 19, 0.6) 2px,
-    transparent 2px,
-    transparent 4px
+    rgba(139, 69, 19, 0.85) 0px,
+    rgba(139, 69, 19, 0.85) 5px,
+    transparent 5px,
+    transparent 10px
   );
+  border-radius: 4px;
+  box-shadow: 0 0 2px rgba(139, 69, 19, 0.6);
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 3;
@@ -658,4 +683,12 @@ const sewingIndicatorStyle = (scale: number) => css`
   }
 `
 
- 
+// Grid container - simplified for better performance
+const quiltGridContainerStyle = css`
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+`

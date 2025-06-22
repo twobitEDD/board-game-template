@@ -67,8 +67,11 @@ export function YarnTextureGenerator({ color, pattern, size = 128, onTextureGene
         break
     }
 
-    // Add yarn fiber texture overlay
-    addFiberTexture(ctx, size)
+    // Subtle fabric shading for depth
+    applyShading(ctx, size)
+
+    // Add random fiber strands overlay tinted by base color
+    addFiberTexture(ctx, size, baseColor)
 
     // Export texture
     if (onTextureGenerated) {
@@ -239,19 +242,56 @@ export function YarnTextureGenerator({ color, pattern, size = 128, onTextureGene
     ctx.fillRect(0, 0, size, size)
   }
 
-  const addFiberTexture = (ctx: CanvasRenderingContext2D, size: number) => {
-    // Add random fiber texture
-    const imageData = ctx.getImageData(0, 0, size, size)
-    const data = imageData.data
+  // Apply light-to-dark shading for gentle depth
+  const applyShading = (ctx: CanvasRenderingContext2D, size: number) => {
+    const grad = ctx.createLinearGradient(0, 0, size, size)
+    grad.addColorStop(0, 'rgba(255,255,255,0.12)')
+    grad.addColorStop(0.5, 'rgba(0,0,0,0)')
+    grad.addColorStop(1, 'rgba(0,0,0,0.18)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, size, size)
+  }
 
-    for (let i = 0; i < data.length; i += 4) {
-      const noise = (Math.random() - 0.5) * 20
-      data[i] = Math.max(0, Math.min(255, data[i] + noise))     // R
-      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise)) // G
-      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise)) // B
+  // Draw random fine fiber lines for realism
+  const addFiberTexture = (ctx: CanvasRenderingContext2D, size: number, base: string) => {
+    const strandCount = Math.floor(size * 1.2) // density proportional to size
+    for (let i = 0; i < strandCount; i++) {
+      const length = 4 + Math.random() * 18
+      const x = Math.random() * size
+      const y = Math.random() * size
+      const angle = Math.random() * Math.PI * 2
+
+      // 70% of fibers are lighter tint, 30% darker for depth
+      const isLight = Math.random() < 0.7
+      const tint = isLight ? lightenColor(base, 0.4) : darkenColor(base, 0.3)
+      const alpha = isLight ? 0.06 + Math.random() * 0.04 : 0.05 + Math.random() * 0.05
+      ctx.strokeStyle = `${hexToRgba(tint, alpha)}`
+      ctx.lineWidth = 0.7 + Math.random() * 0.6
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length)
+      ctx.stroke()
+
+      // Rare contrasting fiber for extra realism
+      if (Math.random() < 0.15) {
+        const contrast = isLight ? darkenColor(base, 0.45) : lightenColor(base, 0.5)
+        ctx.strokeStyle = `${hexToRgba(contrast, 0.04 + Math.random() * 0.04)}`
+        ctx.lineWidth = 0.5 + Math.random() * 0.5
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + Math.cos(angle) * length * 0.8, y + Math.sin(angle) * length * 0.8)
+        ctx.stroke()
+      }
     }
+  }
 
-    ctx.putImageData(imageData, 0, 0)
+  // Helper to convert hex color to rgba with alpha
+  const hexToRgba = (hex: string, alpha: number) => {
+    const c = hex.replace('#', '')
+    const r = parseInt(c.substr(0, 2), 16)
+    const g = parseInt(c.substr(2, 2), 16)
+    const b = parseInt(c.substr(4, 2), 16)
+    return `rgba(${r},${g},${b},${alpha})`
   }
 
   const lightenColor = (color: string, amount: number): string => {

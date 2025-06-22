@@ -1,6 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css, keyframes, Global } from '@emotion/react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 // Global yarn world styling
 export const YarnWorldGlobalStyles = () => (
@@ -9,25 +9,17 @@ export const YarnWorldGlobalStyles = () => (
 
 // Floating yarn elements component
 export function YarnWorldDecorations() {
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Periodic update for animations (can be used for complex timing)
-    }, 100)
-    return () => clearInterval(interval)
-  }, [])
-
   return (
     <div css={decorationsContainerStyle}>
-      <YarnBallsBackground />
+      <StitchSnakeBackground />
       <KnittingNeedles />
-      <FloatingButtons />
       <StitchingLines />
     </div>
   )
 }
 
 // Background yarn balls
-function YarnBallsBackground() {
+export function YarnBallsBackground() {
   const yarnBalls = Array.from({ length: 8 }, (_, i) => ({
     id: i,
     delay: Math.random() * 15,
@@ -75,7 +67,7 @@ function KnittingNeedles() {
 }
 
 // Floating sewing buttons
-function FloatingButtons() {
+export function FloatingButtons() {
   const buttons = Array.from({ length: 6 }, (_, i) => ({
     id: i,
     delay: Math.random() * 8,
@@ -208,6 +200,7 @@ const needleGlint = keyframes`
 // ============ GLOBAL STYLES ============
 
 const yarnWorldGlobalStyles = css`
+  @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap');
   * {
     cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6" fill="%23FFB6C1" stroke="%238B4513" stroke-width="2"/><path d="M14 8 L20 2" stroke="%238B4513" stroke-width="3" stroke-linecap="round"/></svg>') 8 8, auto;
   }
@@ -506,4 +499,102 @@ const fabricButtonStitchingStyle = css`
   border: 1px dashed rgba(139, 69, 19, 0.5);
   border-radius: 4px;
   pointer-events: none;
+`
+
+// ===================== SNAKE STITCHING BACKGROUND =====================
+
+function StitchSnakeBackground() {
+  const [segments, setSegments] = useState<Array<{ x: number; y: number }>>([
+    { x: 0, y: 0 }
+  ])
+  const [direction, setDirection] = useState<{ dx: number; dy: number }>({
+    dx: 1,
+    dy: 0
+  })
+
+  // Grid resolution in percentage (size of each segment)
+  const cellSize = 2 // 2% of viewport per cell (50×50 grid)
+  const maxX = Math.floor(100 / cellSize) - 1
+  const maxY = Math.floor(100 / cellSize) - 1
+  const maxLength = 60 // maximum length of the snake
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSegments(prev => {
+        const head = prev[0]
+        const newHead = {
+          x: (head.x + direction.dx + maxX + 1) % (maxX + 1),
+          y: (head.y + direction.dy + maxY + 1) % (maxY + 1)
+        }
+
+        const next = [newHead, ...prev]
+        if (next.length > maxLength) next.pop()
+        return next
+      })
+
+      // Occasionally change direction (like snake turning)
+      if (Math.random() < 0.1) {
+        setDirection(prevDir => {
+          const dirs = [
+            { dx: 1, dy: 0 },
+            { dx: -1, dy: 0 },
+            { dx: 0, dy: 1 },
+            { dx: 0, dy: -1 }
+          ].filter(d => !(d.dx === -prevDir.dx && d.dy === -prevDir.dy)) // avoid 180° turn
+          return dirs[Math.floor(Math.random() * dirs.length)]
+        })
+      }
+    }, 180)
+
+    return () => clearInterval(interval)
+  }, [direction])
+
+  return (
+    <div css={snakeContainerStyle}>
+      {segments.map((seg, index) => (
+        <div
+          key={`${seg.x}-${seg.y}-${index}`}
+          css={snakeSegmentStyle({
+            x: seg.x * cellSize,
+            y: seg.y * cellSize,
+            size: cellSize,
+            opacity: 1 - index / maxLength
+          })}
+        />
+      ))}
+    </div>
+  )
+}
+
+const snakeContainerStyle = css`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+`
+
+const snakeSegmentStyle = ({
+  x,
+  y,
+  size,
+  opacity
+}: {
+  x: number
+  y: number
+  size: number
+  opacity: number
+}) => css`
+  position: absolute;
+  left: ${x}%;
+  top: ${y}%;
+  width: ${size}%;
+  height: ${size}%;
+  border: 2px dashed rgba(139, 69, 19, ${0.6 * opacity});
+  border-radius: 4px;
+  opacity: ${opacity};
+  box-sizing: border-box;
+  transition: left 0.18s linear, top 0.18s linear;
 ` 

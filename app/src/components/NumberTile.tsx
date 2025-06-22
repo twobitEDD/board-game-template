@@ -192,14 +192,32 @@ const getTexturedPatchStyle = (fabricData: { textureFile: string; accent: string
     z-index: 1;
   }
   
-  /* Different border treatment for placed vs loose */
-  border: ${isPlaced ? '3px solid' : '2px dashed'} ${fabricData.accent};
+  /* Thick stitching border treatment for placed vs loose */
+  border: ${isPlaced ? '6px solid' : '5px dashed'} ${fabricData.accent};
+  ${isPlaced ? css`
+    border-image: repeating-linear-gradient(
+      0deg,
+      ${fabricData.accent} 0px,
+      ${fabricData.accent} 8px,
+      rgba(139, 69, 19, 0.8) 8px,
+      rgba(139, 69, 19, 0.8) 12px
+    ) 6;
+  ` : css`
+    border-image: repeating-linear-gradient(
+      45deg,
+      ${fabricData.accent} 0px,
+      ${fabricData.accent} 6px,
+      transparent 6px,
+      transparent 10px
+    ) 5;
+  `}
   
   /* Enhanced shadow for textured tiles */
   box-shadow: 
     0 ${isPlaced ? '6px 12px' : '3px 6px'} rgba(139, 69, 19, 0.4),
     inset 0 2px 4px rgba(255,255,255,0.3),
-    inset 0 -2px 4px rgba(0,0,0,0.2);
+    inset 0 -2px 4px rgba(0,0,0,0.2),
+    inset 0 0 0 2px rgba(139, 69, 19, ${isPlaced ? '0.6' : '0.4'});
   
   /* Texture quality */
   image-rendering: ${window.devicePixelRatio > 1 ? 'auto' : 'pixelated'};
@@ -320,12 +338,21 @@ const getKnittedPatchStyle = (fabricData: { primary: string; secondary: string; 
     background-size: 4px 4px, 4px 4px;
   `}
   
-  /* Stitched border - connected to quilt */
-  border: 3px solid ${fabricData.accent};
+  /* Thick stitched border - connected to quilt */
+  border: 6px solid ${fabricData.accent};
+  border-style: solid;
+  border-image: repeating-linear-gradient(
+    0deg,
+    ${fabricData.accent} 0px,
+    ${fabricData.accent} 8px,
+    rgba(139, 69, 19, 0.8) 8px,
+    rgba(139, 69, 19, 0.8) 12px
+  ) 6;
   box-shadow: 
     0 4px 8px rgba(139, 69, 19, 0.3),
     inset 0 2px 4px rgba(255,255,255,0.4),
-    inset 0 -2px 4px rgba(0,0,0,0.2);
+    inset 0 -2px 4px rgba(0,0,0,0.2),
+    inset 0 0 0 2px rgba(139, 69, 19, 0.6);
   
   /* Knitting together animation */
   animation: ${patchToQuilt} 0.8s ease-out;
@@ -338,15 +365,23 @@ const getLoosePatchStyle = (fabricData: { primary: string; secondary: string; ac
       ${fabricData.primary} 0%, 
       ${fabricData.secondary} 100%);
   
-  /* Loose, unattached appearance */
-  border: 2px dashed ${fabricData.accent};
+  /* Thick loose stitching border */
+  border: 5px dashed ${fabricData.accent};
+  border-image: repeating-linear-gradient(
+    45deg,
+    ${fabricData.accent} 0px,
+    ${fabricData.accent} 6px,
+    transparent 6px,
+    transparent 10px
+  ) 5;
   opacity: 0.9;
   
   /* Rough, unfinished edges */
   box-shadow: 
     0 2px 6px rgba(139, 69, 19, 0.2),
     inset 0 1px 2px rgba(255,255,255,0.3),
-    inset 0 -1px 2px rgba(0,0,0,0.2);
+    inset 0 -1px 2px rgba(0,0,0,0.2),
+    inset 0 0 0 2px rgba(139, 69, 19, 0.4);
   
   /* Slightly frayed appearance */
   filter: contrast(0.9) brightness(0.95);
@@ -392,7 +427,7 @@ const embroideredNumberStyle = css`
   color: #8B4513;
   font-size: clamp(1.5rem, 4vw, 2.5rem);
   line-height: 1;
-  font-family: 'Georgia', serif;
+  font-family: 'Orbitron', 'Arial Black', sans-serif !important;
   
   /* Embroidered effect */
   text-shadow: 
@@ -414,7 +449,7 @@ const chalkNumberStyle = css`
   color: #654321;
   font-size: clamp(1.5rem, 4vw, 2.5rem);
   line-height: 1;
-  font-family: 'Georgia', serif;
+  font-family: 'Orbitron', 'Arial Black', sans-serif !important;
   
   /* Chalky, temporary appearance */
   text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
