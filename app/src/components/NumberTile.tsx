@@ -1,29 +1,29 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
+import { css, keyframes } from '@emotion/react'
 import { NumberTileId } from '../../../rules/src/material/NumberTileId'
 
 interface NumberTileProps {
   tileId: NumberTileId
   size?: 'normal' | 'large' | 'massive' | 'huge'
   isSelected?: boolean
+  isPlaced?: boolean
   onClick?: () => void
+  useTextures?: boolean
 }
 
-export function NumberTile({ tileId, size = 'normal', isSelected = false, onClick }: NumberTileProps) {
+export function NumberTile({ tileId, size = 'normal', isSelected = false, isPlaced = false, onClick, useTextures = false }: NumberTileProps) {
   const value = getTileValue(tileId)
-  const colors = getTileColors(tileId)
+  const fabricData = getFabricData(tileId)
   
   const combinedStyle = css`
-    ${tileBaseStyle}
+    ${knittingPatchBaseStyle}
     ${sizeStyles[size]}
-    ${getTileStyle(colors)}
-    ${isSelected ? selectedStyle : ''}
-    ${onClick ? clickableStyle : ''}
-  `
-
-  const glowStyle = css`
-    ${tileGlowStyle}
-    background: ${colors.glow};
+    ${useTextures 
+      ? getTexturedPatchStyle(fabricData, isPlaced) 
+      : (isPlaced ? getKnittedPatchStyle(fabricData) : getLoosePatchStyle(fabricData))
+    }
+    ${isSelected ? selectedPatchStyle : ''}
+    ${onClick ? clickablePatchStyle : ''}
   `
 
   return (
@@ -31,10 +31,11 @@ export function NumberTile({ tileId, size = 'normal', isSelected = false, onClic
       css={combinedStyle}
       onClick={onClick}
     >
-      <div css={tileContentStyle}>
-        <span css={tileNumberStyle}>{value}</span>
-        <div css={tileShineStyle} />
-        <div css={glowStyle} />
+      <div css={fabricSurfaceStyle}>
+        <span css={isPlaced ? embroideredNumberStyle : chalkNumberStyle}>{value}</span>
+        {isPlaced && <div css={stitchingOverlayStyle} />}
+        {!isPlaced && <div css={loosePatchOverlayStyle} />}
+        {isPlaced && fabricData.isSpecial && <div css={specialStitchingStyle}>✂️</div>}
       </div>
     </div>
   )
@@ -56,105 +57,216 @@ function getTileValue(tileId: NumberTileId): number {
   }
 }
 
-function getTileColors(tileId: NumberTileId) {
+function getFabricData(tileId: NumberTileId) {
   switch (tileId) {
     case NumberTileId.Zero:
       return { 
-        primary: '#8B5CF6', 
-        secondary: '#A78BFA', 
-        glow: '#8B5CF6',
-        shadow: 'rgba(139, 92, 246, 0.5)'
+        name: 'Cream Wool',
+        primary: '#F5F5DC', 
+        secondary: '#FFFACD', 
+        accent: '#DDD5C7',
+        pattern: 'plain',
+        isSpecial: true,
+        textureFile: 'cream-wool-plain.png'
       }
     case NumberTileId.One:
       return { 
-        primary: '#EC4899', 
-        secondary: '#F472B6', 
-        glow: '#EC4899',
-        shadow: 'rgba(236, 72, 153, 0.5)'
+        name: 'Rose Cotton',
+        primary: '#FFB6C1', 
+        secondary: '#FFC0CB', 
+        accent: '#F08080',
+        pattern: 'ribbed',
+        isSpecial: false,
+        textureFile: 'rose-cotton-ribbed.png'
       }
     case NumberTileId.Two:
       return { 
-        primary: '#14B8A6', 
-        secondary: '#2DD4BF', 
-        glow: '#14B8A6',
-        shadow: 'rgba(20, 184, 166, 0.5)'
+        name: 'Sage Linen',
+        primary: '#98FB98', 
+        secondary: '#90EE90', 
+        accent: '#8FBC8F',
+        pattern: 'cable',
+        isSpecial: false,
+        textureFile: 'sage-linen-cable.png'
       }
     case NumberTileId.Three:
       return { 
-        primary: '#F59E0B', 
-        secondary: '#FBBF24', 
-        glow: '#F59E0B',
-        shadow: 'rgba(245, 158, 11, 0.5)'
+        name: 'Sunshine Yarn',
+        primary: '#FFE135', 
+        secondary: '#FFED4A', 
+        accent: '#F59E0B',
+        pattern: 'seed',
+        isSpecial: false,
+        textureFile: 'sunshine-yarn-seed.png'
       }
     case NumberTileId.Four:
       return { 
-        primary: '#FF6B35', 
-        secondary: '#FF8A5B', 
-        glow: '#FF6B35',
-        shadow: 'rgba(255, 107, 53, 0.5)'
+        name: 'Coral Mohair',
+        primary: '#FF7F7F', 
+        secondary: '#FF9999', 
+        accent: '#CD5C5C',
+        pattern: 'moss',
+        isSpecial: false,
+        textureFile: 'coral-mohair-moss.png'
       }
     case NumberTileId.Five:
       return { 
-        primary: '#EF4444', 
-        secondary: '#F87171', 
-        glow: '#EF4444',
-        shadow: 'rgba(239, 68, 68, 0.5)'
+        name: 'Lavender Silk',
+        primary: '#DDA0DD', 
+        secondary: '#E6E6FA', 
+        accent: '#BA55D3',
+        pattern: 'lace',
+        isSpecial: false,
+        textureFile: 'lavender-silk-lace.png'
       }
     case NumberTileId.Six:
       return { 
-        primary: '#3B82F6', 
-        secondary: '#60A5FA', 
-        glow: '#3B82F6',
-        shadow: 'rgba(59, 130, 246, 0.5)'
+        name: 'Sky Cashmere',
+        primary: '#87CEEB', 
+        secondary: '#B0E0E6', 
+        accent: '#4682B4',
+        pattern: 'fisherman',
+        isSpecial: false,
+        textureFile: 'sky-cashmere-fisherman.png'
       }
     case NumberTileId.Seven:
       return { 
-        primary: '#10B981', 
-        secondary: '#34D399', 
-        glow: '#10B981',
-        shadow: 'rgba(16, 185, 129, 0.5)'
+        name: 'Forest Alpaca',
+        primary: '#228B22', 
+        secondary: '#32CD32', 
+        accent: '#006400',
+        pattern: 'aran',
+        isSpecial: false,
+        textureFile: 'forest-alpaca-aran.png'
       }
     case NumberTileId.Eight:
       return { 
-        primary: '#8B5CF6', 
-        secondary: '#A78BFA', 
-        glow: '#8B5CF6',
-        shadow: 'rgba(139, 92, 246, 0.5)'
+        name: 'Violet Merino',
+        primary: '#8A2BE2', 
+        secondary: '#9370DB', 
+        accent: '#663399',
+        pattern: 'fair-isle',
+        isSpecial: false,
+        textureFile: 'violet-merino-fair-isle.png'
       }
     case NumberTileId.Nine:
       return { 
-        primary: '#F97316', 
-        secondary: '#FB923C', 
-        glow: '#F97316',
-        shadow: 'rgba(249, 115, 22, 0.5)'
+        name: 'Golden Angora',
+        primary: '#DAA520', 
+        secondary: '#FFD700', 
+        accent: '#B8860B',
+        pattern: 'intarsia',
+        isSpecial: true,
+        textureFile: 'golden-angora-intarsia.png'
       }
     default:
       return { 
-        primary: '#6B7280', 
-        secondary: '#9CA3AF', 
-        glow: '#6B7280',
-        shadow: 'rgba(107, 114, 128, 0.5)'
+        name: 'Grey Wool',
+        primary: '#A9A9A9', 
+        secondary: '#C0C0C0', 
+        accent: '#808080',
+        pattern: 'plain',
+        isSpecial: false,
+        textureFile: 'grey-wool-plain.png'
       }
   }
 }
 
-const tileBaseStyle = css`
+// NEW: Textured patch style using actual texture files
+const getTexturedPatchStyle = (fabricData: { textureFile: string; accent: string; primary: string }, isPlaced: boolean) => css`
+  /* Use actual texture file as background */
+  background-image: url('/textures/${fabricData.textureFile}');
+  background-size: 64px 64px;
+  background-repeat: repeat;
+  
+  /* Overlay color tint to maintain some color identity */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, ${fabricData.primary}40 0%, ${fabricData.primary}20 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+  
+  /* Different border treatment for placed vs loose */
+  border: ${isPlaced ? '3px solid' : '2px dashed'} ${fabricData.accent};
+  
+  /* Enhanced shadow for textured tiles */
+  box-shadow: 
+    0 ${isPlaced ? '6px 12px' : '3px 6px'} rgba(139, 69, 19, 0.4),
+    inset 0 2px 4px rgba(255,255,255,0.3),
+    inset 0 -2px 4px rgba(0,0,0,0.2);
+  
+  /* Texture quality */
+  image-rendering: ${window.devicePixelRatio > 1 ? 'auto' : 'pixelated'};
+  
+  /* Animation for placed tiles */
+  ${isPlaced && css`
+    animation: ${patchToQuilt} 0.8s ease-out;
+  `}
+`
+
+// Cozy knitting animations
+const gentleFloat = keyframes`
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-2px) rotate(0.5deg); }
+`
+
+const patchToQuilt = keyframes`
+  0% { 
+    transform: scale(0.95) rotate(-2deg);
+    filter: brightness(0.9);
+  }
+  50% {
+    transform: scale(1.05) rotate(1deg);
+    filter: brightness(1.1);
+  }
+  100% { 
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1);
+  }
+`
+
+const stitchingAnimation = keyframes`
+  0% { 
+    border-style: dashed;
+    border-color: transparent;
+  }
+  50% {
+    border-style: solid;
+    border-color: rgba(139, 69, 19, 0.6);
+  }
+  100% { 
+    border-style: solid;
+    border-color: rgba(139, 69, 19, 0.8);
+  }
+`
+
+const knittingPatchBaseStyle = css`
   position: relative;
-  border-radius: 20px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  transform-style: preserve-3d;
-  perspective: 1000px;
+  transition: all 0.4s ease;
   user-select: none;
   
+  /* Fabric-like texture */
+  background-image: 
+    radial-gradient(circle at 20% 50%, rgba(255,255,255,0.1) 1px, transparent 1px),
+    radial-gradient(circle at 80% 50%, rgba(0,0,0,0.1) 1px, transparent 1px);
+  background-size: 8px 8px, 6px 6px;
+  
   &:hover {
-    transform: translateY(-8px) scale(1.05);
-    filter: brightness(1.1);
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 8px 16px rgba(139, 69, 19, 0.3);
   }
   
   &:active {
-    transform: translateY(-4px) scale(0.98);
-    transition: all 0.1s;
+    transform: translateY(-2px) scale(0.98);
+    transition: all 0.15s;
   }
 `
 
@@ -177,37 +289,91 @@ const sizeStyles = {
   `
 }
 
-const getTileStyle = (colors: { primary: string; secondary: string; shadow: string }) => css`
-  background: linear-gradient(145deg, ${colors.primary}, ${colors.secondary});
-  box-shadow: 
-    0 10px 20px ${colors.shadow},
-    0 6px 6px ${colors.shadow},
-    inset 0 -2px 6px rgba(0,0,0,0.1),
-    inset 0 2px 6px rgba(255,255,255,0.3);
-  border: 2px solid rgba(255,255,255,0.3);
-`
-
-const selectedStyle = css`
-  transform: translateY(-12px) scale(1.15);
-  box-shadow: 
-    0 20px 40px rgba(255,255,255,0.3),
-    0 10px 20px rgba(255,255,255,0.2);
-  filter: brightness(1.2) saturate(1.2);
-  animation: pulse 2s infinite;
+// KNITTED patch style - stitched into quilt
+const getKnittedPatchStyle = (fabricData: { primary: string; secondary: string; accent: string; pattern: string }) => css`
+  background: 
+    linear-gradient(45deg, ${fabricData.primary} 0%, ${fabricData.secondary} 50%, ${fabricData.primary} 100%);
   
-  @keyframes pulse {
-    0%, 100% { transform: translateY(-12px) scale(1.15); }
-    50% { transform: translateY(-15px) scale(1.18); }
-  }
+  /* Knitted fabric texture based on pattern */
+  ${fabricData.pattern === 'ribbed' && css`
+    background-image: 
+      repeating-linear-gradient(90deg, 
+        rgba(255,255,255,0.1) 0px, 
+        rgba(255,255,255,0.1) 2px, 
+        transparent 2px, 
+        transparent 4px);
+  `}
+  
+  ${fabricData.pattern === 'cable' && css`
+    background-image: 
+      repeating-linear-gradient(45deg, 
+        rgba(255,255,255,0.15) 0px, 
+        rgba(255,255,255,0.15) 3px, 
+        transparent 3px, 
+        transparent 6px);
+  `}
+  
+  ${fabricData.pattern === 'seed' && css`
+    background-image: 
+      radial-gradient(circle at 25% 25%, rgba(255,255,255,0.2) 1px, transparent 1px),
+      radial-gradient(circle at 75% 75%, rgba(0,0,0,0.1) 1px, transparent 1px);
+    background-size: 4px 4px, 4px 4px;
+  `}
+  
+  /* Stitched border - connected to quilt */
+  border: 3px solid ${fabricData.accent};
+  box-shadow: 
+    0 4px 8px rgba(139, 69, 19, 0.3),
+    inset 0 2px 4px rgba(255,255,255,0.4),
+    inset 0 -2px 4px rgba(0,0,0,0.2);
+  
+  /* Knitting together animation */
+  animation: ${patchToQuilt} 0.8s ease-out;
 `
 
-const clickableStyle = css`
+// LOOSE patch style - not yet stitched
+const getLoosePatchStyle = (fabricData: { primary: string; secondary: string; accent: string }) => css`
+  background: 
+    linear-gradient(135deg, 
+      ${fabricData.primary} 0%, 
+      ${fabricData.secondary} 100%);
+  
+  /* Loose, unattached appearance */
+  border: 2px dashed ${fabricData.accent};
+  opacity: 0.9;
+  
+  /* Rough, unfinished edges */
+  box-shadow: 
+    0 2px 6px rgba(139, 69, 19, 0.2),
+    inset 0 1px 2px rgba(255,255,255,0.3),
+    inset 0 -1px 2px rgba(0,0,0,0.2);
+  
+  /* Slightly frayed appearance */
+  filter: contrast(0.9) brightness(0.95);
+`
+
+const selectedPatchStyle = css`
+  transform: translateY(-8px) scale(1.08) rotate(2deg);
+  animation: ${gentleFloat} 2s ease-in-out infinite;
+  z-index: 10;
+  
+  /* Glowing like it's being held by knitting needles */
+  box-shadow: 0 0 20px rgba(218, 165, 32, 0.6) !important;
+  border-color: #DAA520 !important;
+  
+  /* Remove loose state when selected */
+  filter: contrast(1) brightness(1) !important;
+  opacity: 1 !important;
+`
+
+const clickablePatchStyle = css`
   &:hover {
-    transform: translateY(-10px) scale(1.08);
+    transform: translateY(-6px) scale(1.05);
+    filter: brightness(1.05);
   }
 `
 
-const tileContentStyle = css`
+const fabricSurfaceStyle = css`
   position: relative;
   width: 100%;
   height: 100%;
@@ -215,52 +381,116 @@ const tileContentStyle = css`
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 6px;
 `
 
-const tileNumberStyle = css`
+// EMBROIDERED number style - stitched into fabric
+const embroideredNumberStyle = css`
   position: relative;
-  z-index: 3;
+  z-index: 5;
   font-weight: 900;
-  color: white;
-  text-shadow: 
-    2px 2px 4px rgba(0,0,0,0.8),
-    0 0 10px rgba(255,255,255,0.3);
+  color: #8B4513;
   font-size: clamp(1.5rem, 4vw, 2.5rem);
   line-height: 1;
+  font-family: 'Georgia', serif;
+  
+  /* Embroidered effect */
+  text-shadow: 
+    1px 1px 0 rgba(255,255,255,0.8),
+    2px 2px 0 rgba(139,69,19,0.6),
+    1px 1px 3px rgba(0,0,0,0.3);
+  
+  /* Raised embroidery appearance */
+  background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, transparent 50%);
+  background-clip: text;
+  -webkit-background-clip: text;
 `
 
-const tileShineStyle = css`
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    45deg,
-    transparent,
-    rgba(255,255,255,0.1),
-    transparent
-  );
-  transform: rotate(45deg);
-  animation: shine 3s ease-in-out infinite;
+// CHALK number style - temporary marking
+const chalkNumberStyle = css`
+  position: relative;
+  z-index: 5;
+  font-weight: 700;
+  color: #654321;
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  line-height: 1;
+  font-family: 'Georgia', serif;
   
-  @keyframes shine {
-    0%, 100% { transform: rotate(45deg) translateX(-100%); }
-    50% { transform: rotate(45deg) translateX(100%); }
+  /* Chalky, temporary appearance */
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+  opacity: 0.8;
+`
+
+const stitchingOverlayStyle = css`
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border: 1px solid rgba(139, 69, 19, 0.6);
+  border-radius: 4px;
+  z-index: 2;
+  pointer-events: none;
+  
+  /* Stitching pattern */
+  border-style: dashed;
+  animation: ${stitchingAnimation} 0.8s ease-out;
+  
+  /* Cross-stitch corners */
+  &::before {
+    content: '✂';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    font-size: 8px;
+    color: rgba(139, 69, 19, 0.7);
+  }
+  
+  &::after {
+    content: '✂';
+    position: absolute;
+    bottom: -3px;
+    right: -3px;
+    font-size: 8px;
+    color: rgba(139, 69, 19, 0.7);
+    transform: rotate(180deg);
   }
 `
 
-const tileGlowStyle = css`
+const specialStitchingStyle = css`
   position: absolute;
-  top: -10px;
-  left: -10px;
-  right: -10px;
-  bottom: -10px;
-  border-radius: 25px;
-  z-index: -1;
-  opacity: 0.6;
-  filter: blur(8px);
+  top: -4px;
+  right: -4px;
+  font-size: 12px;
+  z-index: 6;
+  animation: ${gentleFloat} 3s ease-in-out infinite;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
 `
 
- 
+const loosePatchOverlayStyle = css`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 30% 30%, rgba(139,69,19,0.1) 0%, transparent 70%);
+  border-radius: 6px;
+  z-index: 3;
+  pointer-events: none;
+  
+  /* Fabric fuzz and loose threads */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+      radial-gradient(circle at 20% 30%, rgba(139,69,19,0.1) 1px, transparent 2px),
+      radial-gradient(circle at 80% 70%, rgba(139,69,19,0.1) 1px, transparent 2px);
+    background-size: 12px 12px, 8px 8px;
+    border-radius: inherit;
+  }
+` 

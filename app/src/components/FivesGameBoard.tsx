@@ -1028,16 +1028,10 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return { isValid: false, error: "Must be adjacent to existing tiles" }
     }
 
-    // Check contiguity within the turn
+    // Check contiguity within the turn (tile-agnostic - any tile should follow same pattern)
     if (tilesPlacedThisTurn.length > 0 && tilesPlacedThisTurn.length < 10) {
-      const allTurnTilesWithNew = [...tilesPlacedThisTurn, { 
-        id: selectedTile!.id, 
-        uniqueId: 'temp', 
-        location: { type: 'Board', x, y } 
-      }]
-      
-      const xValues = allTurnTilesWithNew.map(tile => tile.location.x || 0)
-      const yValues = allTurnTilesWithNew.map(tile => tile.location.y || 0)
+      const xValues = tilesPlacedThisTurn.map(tile => tile.location.x || 0).concat([x])
+      const yValues = tilesPlacedThisTurn.map(tile => tile.location.y || 0).concat([y])
       
       const allSameRow = yValues.every(val => val === yValues[0])
       const allSameCol = xValues.every(val => val === xValues[0])
@@ -1182,12 +1176,12 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     return () => clearInterval(clearCacheInterval)
   }, [])
 
-  // Lightweight placement validation for visual indicators (simplified to prevent infinite loops)
+  // Lightweight placement validation for visual indicators (tile-agnostic - only checks position rules)
   const isValidPlacement = useCallback((x: number, y: number): boolean => {
     if (!selectedTile) return false
     
-    // Use simple cache without complex memoization
-    const cacheKey = `${x},${y}-${selectedTile.id}`
+    // Use position-only cache key (tile number doesn't matter for basic placement)
+    const cacheKey = `${x},${y}-${boardTiles.length}-${tilesPlacedThisTurn.length}`
     if (validationCacheRef.current.has(cacheKey)) {
       return validationCacheRef.current.get(cacheKey)!
     }
@@ -1198,9 +1192,9 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return false
     }
     
-         // Check if position is occupied
-     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-     const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
+    // Check if position is occupied
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
     
     if (isOccupied) {
       validationCacheRef.current.set(cacheKey, false)
@@ -1220,7 +1214,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return result
     }
     
-    // Use lightweight validation for smaller boards
+    // Use lightweight validation for smaller boards - THIS IS TILE-AGNOSTIC
     const result = quickValidatePlacement(x, y, tilesPlacedThisTurn, allTiles)
     validationCacheRef.current.set(cacheKey, result.isValid)
     return result.isValid
@@ -1473,6 +1467,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
                     tileId={tile.id} 
                     size="normal"
                     isSelected={selectedTile?.uniqueId === tile.uniqueId}
+                    isPlaced={false}
+                    useTextures={true}
                     onClick={() => handleTileSelect(tile)}
                   />
                 </div>
@@ -1789,28 +1785,70 @@ const turnStatusExpandedStyle = css`
 
 
 const handStyle = css`
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 15px;
-  padding: 15px;
-  min-height: 120px;
-  max-height: 180px;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(238, 224, 201, 0.8) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(220, 208, 185, 0.6) 0%, transparent 50%),
+    linear-gradient(45deg, #f0e6d2 0%, #e8dcc6 50%, #d4c4a8 100%);
+  border: 3px solid #8b4513;
+  border-radius: 20px;
+  padding: 20px;
+  min-height: 140px;
+  max-height: 200px;
   flex: 0 0 auto;
   flex-shrink: 0;
   margin-top: auto;
   overflow: hidden;
+  box-shadow: 
+    inset 0 2px 10px rgba(0, 0, 0, 0.1),
+    0 4px 20px rgba(0, 0, 0, 0.2);
+  position: relative;
+  
+  /* Fabric texture overlay */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 2px,
+        rgba(139, 69, 19, 0.1) 2px,
+        rgba(139, 69, 19, 0.1) 4px
+      );
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  
+  /* Quilting stitches around border */
+  &::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    border: 2px dashed #8b4513;
+    border-radius: 12px;
+    pointer-events: none;
+    opacity: 0.4;
+  }
   
   @media (max-width: 768px) {
+    border-radius: 16px;
+    padding: 16px;
+    min-height: 120px;
+    max-height: 170px;
+  }
+  
+  @media (max-width: 480px) {
     border-radius: 12px;
     padding: 12px;
     min-height: 100px;
     max-height: 150px;
-  }
-  
-  @media (max-width: 480px) {
-    border-radius: 10px;
-    padding: 10px;
-    min-height: 90px;
-    max-height: 130px;
   }
 `
 
@@ -1881,17 +1919,34 @@ const handActionsExpandedStyle = css`
 `
 
 const handLabelStyle = css`
-  color: white;
-  font-size: 12px;
-  font-weight: 700;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  color: #8b4513;
+  font-size: 14px;
+  font-weight: 800;
+  text-shadow: 
+    1px 1px 0px #d4c4a8,
+    2px 2px 2px rgba(139, 69, 19, 0.3);
+  font-family: 'Arial Black', Arial, sans-serif;
+  letter-spacing: 0.5px;
+  position: relative;
+  z-index: 2;
+  
+  /* Embroidered text effect */
+  &::after {
+    content: '🧶 PATCH COLLECTION 🧶';
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(139, 69, 19, 0.5);
+    z-index: -1;
+  }
   
   @media (max-width: 768px) {
-    font-size: 11px;
+    font-size: 12px;
   }
   
   @media (max-width: 480px) {
-    font-size: 10px;
+    font-size: 11px;
   }
 `
 
@@ -1946,26 +2001,61 @@ const skipTurnButtonStyle = css`
 const handTilesStyle = css`
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
-  min-height: 60px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 80px;
+  padding: 15px;
+  background: 
+    linear-gradient(145deg, #f5f0e8 0%, #e8ddc8 100%),
+    radial-gradient(circle at 30% 70%, rgba(139, 69, 19, 0.1) 0%, transparent 50%);
+  border-radius: 15px;
+  border: 2px solid #8b4513;
+  box-shadow: 
+    inset 0 2px 8px rgba(139, 69, 19, 0.15),
+    0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 1;
+  
+  /* Woven basket texture */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 8px,
+        rgba(139, 69, 19, 0.05) 8px,
+        rgba(139, 69, 19, 0.05) 10px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 8px,
+        rgba(139, 69, 19, 0.05) 8px,
+        rgba(139, 69, 19, 0.05) 10px
+      );
+    border-radius: 13px;
+    pointer-events: none;
+    opacity: 0.6;
+  }
   
   @media (max-width: 768px) {
-    gap: 6px;
-    padding: 8px;
-    min-height: 50px;
-    border-radius: 8px;
+    gap: 10px;
+    padding: 12px;
+    min-height: 70px;
+    border-radius: 12px;
   }
   
   @media (max-width: 480px) {
-    gap: 4px;
-    padding: 6px;
-    min-height: 40px;
-    border-radius: 6px;
+    gap: 8px;
+    padding: 10px;
+    min-height: 60px;
+    border-radius: 10px;
   }
 `
 

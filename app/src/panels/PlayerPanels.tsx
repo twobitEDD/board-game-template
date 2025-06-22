@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
 import { GameConfig } from '../components/GameSetup'
+import { EmbroideredText, QuiltedSurface, FabricButton } from '../components/YarnWorldTheme'
 
 interface Player {
   id: string
@@ -29,8 +30,8 @@ export function PlayerPanels({
   gameMessage = '',
   currentPlayerIndex = 0
 }: PlayerPanelsProps) {
-  // Create players based on game config
-  const playerColors = ['#2196F3', '#F44336', '#4CAF50', '#FF9800']
+  // Yarn-themed player colors
+  const playerColors = ['#FFB6C1', '#98FB98', '#87CEEB', '#DDA0DD']
   const playerNames = gameConfig?.playerNames || []
   const playerCount = gameConfig?.playerCount || 1
   
@@ -41,20 +42,19 @@ export function PlayerPanels({
       ? playerNames.map((name, index) => ({
           id: `player${index + 1}`,
           name: name || `Player ${index + 1}`,
-          color: playerColors[index] || '#9E9E9E',
-          score: playerScores[index] || 0, // Use actual score for each player
-          isActive: index === currentPlayerIndex // Current player is active
+          color: playerColors[index] || '#FFB6C1',
+          score: playerScores[index] || 0,
+          isActive: index === currentPlayerIndex
         }))
       : Array.from({ length: playerCount }, (_, index) => ({
           id: `player${index + 1}`,
           name: `Player ${index + 1}`,
-          color: playerColors[index] || '#9E9E9E',
-          score: playerScores[index] || 0, // Use actual score for each player
+          color: playerColors[index] || '#FFB6C1',
+          score: playerScores[index] || 0,
           isActive: index === currentPlayerIndex
         }))
   } catch (error) {
     console.error('Error creating players:', error)
-    // Fallback to single player
     players = [{
       id: 'player1',
       name: 'Player 1',
@@ -67,284 +67,365 @@ export function PlayerPanels({
   const isSinglePlayer = playerCount === 1
 
   return (
-    <div css={panelsContainerStyle}>
-      <div css={panelHeaderStyle}>
-        <h3 css={panelTitleStyle}>
-          {isSinglePlayer ? 'Solo Practice' : 'Players'}
-        </h3>
-        <div css={gameInfoHeaderStyle}>
-          <span>
-            {isSinglePlayer 
-              ? '🎯 Solo Mode' 
-              : gameConfig.playType === 'local' ? '👥 Local' : '🌐 Online'
-            }
-          </span>
-          <button css={backToSetupButtonStyle} onClick={onBackToSetup}>
-            ← Setup
-          </button>
-        </div>
-      </div>
-      
-      <div css={playersListStyle}>
-        {players.map((player) => (
-          <div 
-            key={player.id}
-            css={playerCardStyle}
-            style={player.isActive ? {
-              background: 'rgba(255, 255, 255, 0.2)',
-              borderColor: 'rgba(255, 255, 255, 0.4)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-            } : {}}
-          >
-            <div css={playerAvatarStyle(player.color)}>
-              {player.name.charAt(0)}
-            </div>
-            <div css={playerInfoStyle}>
-              <div css={playerNameStyle}>{player.name}</div>
-              <div css={playerScoreStyle}>{player.score} pts</div>
-            </div>
-            {player.isActive && (
-              <div css={activeIndicatorStyle}>●</div>
-            )}
+    <div css={craftingCabinetStyle}>
+      {/* Cabinet Header */}
+      <QuiltedSurface padding="15px" color="#F8F0E3">
+        <div css={cabinetHeaderStyle}>
+          <EmbroideredText size="1.2rem" color="#8B4513">
+            🧵 {isSinglePlayer ? 'Solo Workshop' : 'Crafters'}
+          </EmbroideredText>
+          <div css={workshopInfoStyle}>
+            <EmbroideredText size="0.8rem" color="#654321">
+              {isSinglePlayer 
+                ? '🎯 Practice Mode' 
+                : gameConfig.playType === 'local' ? '👥 Local Group' : '🌐 Online Circle'
+              }
+            </EmbroideredText>
+            <FabricButton 
+              color="#E8D5C1" 
+              onClick={onBackToSetup}
+            >
+              ← Workshop Setup
+            </FabricButton>
           </div>
+        </div>
+      </QuiltedSurface>
+      
+      {/* Players List */}
+      <div css={craftersListStyle}>
+        {players.map((player) => (
+          <QuiltedSurface 
+            key={player.id}
+            padding="12px" 
+            color={player.isActive ? "#F8F0E3" : "#F0E8D5"}
+          >
+            <div css={crafterCardStyle(player.isActive)}>
+              <div css={crafterAvatarStyle(player.color)}>
+                <span css={avatarInitialStyle}>
+                  {player.name.charAt(0)}
+                </span>
+                <div css={yarnBallAccentStyle(player.color)} />
+              </div>
+              <div css={crafterInfoStyle}>
+                <EmbroideredText size="0.9rem" color="#8B4513">
+                  {player.name}
+                </EmbroideredText>
+                <div css={scoreDisplayStyle}>
+                  <EmbroideredText size="0.8rem" color="#654321">
+                    {player.score} stitches
+                  </EmbroideredText>
+                </div>
+              </div>
+              {player.isActive && (
+                <div css={activeCrafterStyle}>🧶</div>
+              )}
+            </div>
+          </QuiltedSurface>
         ))}
       </div>
       
-      <div css={gameStatusStyle}>
-        <h4 css={statusTitleStyle}>Game Status</h4>
-        <div css={statusItemStyle}>
-          <span css={statusLabelStyle}>Turn:</span>
-          <span css={statusValueStyle}>{turnNumber}</span>
-        </div>
-        <div css={statusItemStyle}>
-          <span css={statusLabelStyle}>Tiles Left:</span>
-          <span css={statusValueStyle}>{tilesRemaining}</span>
-        </div>
-        {gameMessage && (
-          <div css={currentMessageStyle}>
-            <div css={messageLabelStyle}>Status:</div>
-            <div css={messageTextStyle}>{gameMessage}</div>
+      {/* Crafting Status */}
+      <QuiltedSurface padding="15px" color="#E8F5E8">
+        <div css={craftingStatusStyle}>
+          <EmbroideredText size="1rem" color="#8B4513">
+            📏 Quilting Progress
+          </EmbroideredText>
+          <div css={statusGridStyle}>
+            <div css={statusItemStyle}>
+              <EmbroideredText size="0.8rem" color="#654321">
+                Round:
+              </EmbroideredText>
+              <div css={statusBadgeStyle}>
+                <EmbroideredText size="0.8rem" color="#8B4513">
+                  {turnNumber}
+                </EmbroideredText>
+              </div>
+            </div>
+            <div css={statusItemStyle}>
+              <EmbroideredText size="0.8rem" color="#654321">
+                Patches:
+              </EmbroideredText>
+              <div css={statusBadgeStyle}>
+                <EmbroideredText size="0.8rem" color="#8B4513">
+                  {tilesRemaining}
+                </EmbroideredText>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-      
-      <div css={gameRulesStyle}>
-        <h4 css={rulesTitleStyle}>
-          {isSinglePlayer ? 'Solo Challenge' : 'Quick Rules'}
-        </h4>
-        <ul css={rulesListStyle}>
-          <li>Place number tiles on the board</li>
-          <li>Create sequences that sum to multiples of 5</li>
-          <li>Tiles must connect to existing tiles</li>
-          <li>Score points for valid sequences</li>
-          {isSinglePlayer ? (
-            <>
-              <li>Practice and improve your skills</li>
-              <li>Try to reach 500 points efficiently!</li>
-            </>
-          ) : (
-            <li>First to 500 points wins!</li>
+          {gameMessage && (
+            <div css={statusMessageStyle}>
+              <EmbroideredText size="0.7rem" color="#654321">
+                💬 {gameMessage}
+              </EmbroideredText>
+            </div>
           )}
-        </ul>
-      </div>
+        </div>
+      </QuiltedSurface>
+      
+      {/* Crafting Guide */}
+      <QuiltedSurface padding="15px" color="#FFF8E1">
+        <div css={craftingGuideStyle}>
+          <EmbroideredText size="1rem" color="#8B4513">
+            📖 {isSinglePlayer ? 'Practice Guide' : 'Quilting Rules'}
+          </EmbroideredText>
+          <div css={guideListStyle}>
+            <div css={guideItemStyle}>
+              <span css={guideIconStyle}>🧩</span>
+              <EmbroideredText size="0.7rem" color="#654321">
+                Sew patches onto the quilt
+              </EmbroideredText>
+            </div>
+            <div css={guideItemStyle}>
+              <span css={guideIconStyle}>🎯</span>
+              <EmbroideredText size="0.7rem" color="#654321">
+                Create rows summing to multiples of 5
+              </EmbroideredText>
+            </div>
+            <div css={guideItemStyle}>
+              <span css={guideIconStyle}>🔗</span>
+              <EmbroideredText size="0.7rem" color="#654321">
+                Connect new patches to existing ones
+              </EmbroideredText>
+            </div>
+            <div css={guideItemStyle}>
+              <span css={guideIconStyle}>⭐</span>
+              <EmbroideredText size="0.7rem" color="#654321">
+                Earn stitches for valid sequences
+              </EmbroideredText>
+            </div>
+            {isSinglePlayer ? (
+              <>
+                <div css={guideItemStyle}>
+                  <span css={guideIconStyle}>🏆</span>
+                  <EmbroideredText size="0.7rem" color="#654321">
+                    Practice to improve your technique
+                  </EmbroideredText>
+                </div>
+                <div css={guideItemStyle}>
+                  <span css={guideIconStyle}>🎨</span>
+                  <EmbroideredText size="0.7rem" color="#654321">
+                    Try to reach 500 stitches efficiently!
+                  </EmbroideredText>
+                </div>
+              </>
+            ) : (
+              <div css={guideItemStyle}>
+                <span css={guideIconStyle}>🏆</span>
+                <EmbroideredText size="0.7rem" color="#654321">
+                  First to 500 stitches wins the quilt!
+                </EmbroideredText>
+              </div>
+            )}
+          </div>
+        </div>
+      </QuiltedSurface>
     </div>
   )
 }
 
-const panelsContainerStyle = css`
-  width: 280px;
+// Yarn World Styling
+const craftingCabinetStyle = css`
   height: 100vh;
-  background: rgba(0, 0, 0, 0.2);
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  gap: 20px;
+  padding: 15px;
+  gap: 15px;
   overflow-y: auto;
+  
+  /* Craft room cabinet with yarn textures */
+  background: 
+    linear-gradient(180deg, 
+      rgba(245, 230, 211, 0.95) 0%,
+      rgba(240, 226, 206, 0.95) 50%,
+      rgba(235, 220, 201, 0.95) 100%);
+  
+  /* Cabinet wood grain */
+  background-image: 
+    repeating-linear-gradient(0deg, 
+      rgba(139, 69, 19, 0.08) 0px, 
+      rgba(139, 69, 19, 0.08) 2px, 
+      transparent 2px, 
+      transparent 25px);
+  
+  /* Cabinet styling */
+  border-radius: 0 0 0 15px;
+  position: relative;
 `
 
-const panelHeaderStyle = css`
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+const cabinetHeaderStyle = css`
+  text-align: center;
 `
 
-const panelTitleStyle = css`
-  margin: 0;
-  color: white;
-  font-size: 18px;
-  font-weight: 700;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-`
-
-const playersListStyle = css`
+const workshopInfoStyle = css`
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  align-items: center;
 `
 
-const playerCardStyle = css`
+const craftersListStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
+const crafterCardStyle = (isActive: boolean) => css`
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  transition: all 0.2s ease;
+  position: relative;
   
-  &:hover {
-    background: rgba(255, 255, 255, 0.15);
-    transform: translateY(-1px);
-  }
+  ${isActive && css`
+    &::before {
+      content: '';
+      position: absolute;
+      top: -6px;
+      left: -6px;
+      right: -6px;
+      bottom: -6px;
+      border: 2px dashed #DAA520;
+      border-radius: 12px;
+      background: rgba(218, 165, 32, 0.1);
+    }
+  `}
 `
 
-const playerAvatarStyle = (color: string) => css`
-  width: 40px;
-  height: 40px;
+const crafterAvatarStyle = (color: string) => css`
+  position: relative;
+  width: 45px;
+  height: 45px;
   border-radius: 50%;
-  background: ${color || '#9E9E9E'};
+  background: linear-gradient(135deg, ${color} 0%, rgba(255,255,255,0.3) 50%, ${color} 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 3px solid rgba(139, 69, 19, 0.4);
+  box-shadow: 
+    0 4px 8px rgba(139, 69, 19, 0.2),
+    inset 0 2px 4px rgba(255, 255, 255, 0.4);
+  
+  /* Fabric texture */
+  background-image: 
+    radial-gradient(circle at 25% 25%, rgba(255,255,255,0.3) 1px, transparent 1px);
+  background-size: 4px 4px;
 `
 
-const playerInfoStyle = css`
+const avatarInitialStyle = css`
+  position: relative;
+  z-index: 2;
+`
+
+const yarnBallAccentStyle = (color: string) => css`
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 12px;
+  height: 12px;
+  background: radial-gradient(circle, ${color} 0%, rgba(0,0,0,0.2) 100%);
+  border-radius: 50%;
+  border: 1px solid rgba(139, 69, 19, 0.6);
+  z-index: 3;
+`
+
+const crafterInfoStyle = css`
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 `
 
-const playerNameStyle = css`
-  color: white;
-  font-weight: 600;
-  font-size: 14px;
-`
-
-const playerScoreStyle = css`
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-`
-
-const activeIndicatorStyle = css`
-  color: #4CAF50;
-  font-size: 12px;
-  animation: pulse 2s infinite;
-  
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-`
-
-const gameRulesStyle = css`
-  margin-top: auto;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-`
-
-const rulesTitleStyle = css`
-  margin: 0 0 10px 0;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-`
-
-const rulesListStyle = css`
-  margin: 0;
-  padding-left: 16px;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 11px;
-  line-height: 1.4;
-  
-  li {
-    margin-bottom: 4px;
-  }
-`
-
-const gameInfoHeaderStyle = css`
+const scoreDisplayStyle = css`
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-`
-
-const backToSetupButtonStyle = css`
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  padding: 6px 12px;
-  color: white;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: 4px;
   
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: translateY(-1px);
+  &::before {
+    content: '⭐';
+    font-size: 0.8rem;
   }
 `
 
-const gameStatusStyle = css`
-  padding: 15px;
-  background: rgba(76, 175, 80, 0.1);
-  border-radius: 10px;
-  border: 1px solid rgba(76, 175, 80, 0.2);
-  margin-bottom: 10px;
+const activeCrafterStyle = css`
+  font-size: 1.2rem;
+  animation: gentleFloat 2s ease-in-out infinite;
+  
+  @keyframes gentleFloat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-2px); }
+  }
 `
 
-const statusTitleStyle = css`
-  margin: 0 0 10px 0;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
+const craftingStatusStyle = css`
+  text-align: center;
+`
+
+const statusGridStyle = css`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0;
 `
 
 const statusItemStyle = css`
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: center;
-  margin-bottom: 6px;
+  gap: 4px;
 `
 
-const statusLabelStyle = css`
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  font-weight: 500;
+const statusBadgeStyle = css`
+  background: rgba(139, 69, 19, 0.1);
+  border: 2px solid rgba(139, 69, 19, 0.3);
+  border-radius: 8px;
+  padding: 6px 12px;
+  
+  /* Badge stitching effect */
+  box-shadow: 
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.1);
 `
 
-const statusValueStyle = css`
-  color: white;
-  font-size: 12px;
-  font-weight: 700;
-`
-
-const currentMessageStyle = css`
-  margin-top: 10px;
+const statusMessageStyle = css`
+  margin-top: 12px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 248, 220, 0.6);
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-`
-
-const messageLabelStyle = css`
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 10px;
-  font-weight: 600;
-  margin-bottom: 4px;
-`
-
-const messageTextStyle = css`
-  color: white;
-  font-size: 11px;
-  line-height: 1.3;
+  border: 1px dashed rgba(139, 69, 19, 0.3);
   word-wrap: break-word;
+  text-align: left;
+`
+
+const craftingGuideStyle = css`
+  text-align: center;
+`
+
+const guideListStyle = css`
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
+const guideItemStyle = css`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  border: 1px solid rgba(139, 69, 19, 0.2);
+  
+  /* Fabric texture */
+  background-image: 
+    repeating-linear-gradient(45deg, 
+      rgba(139, 69, 19, 0.02) 0px, 
+      rgba(139, 69, 19, 0.02) 1px, 
+      transparent 1px, 
+      transparent 8px);
+`
+
+const guideIconStyle = css`
+  font-size: 0.9rem;
+  flex-shrink: 0;
 `

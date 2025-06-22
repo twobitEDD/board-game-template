@@ -56,6 +56,7 @@ export function PlayerHand({
                 tileId={tile.id} 
                 size="normal"
                 isSelected={selectedTile?.uniqueId === tile.uniqueId}
+                isPlaced={false}
                 onClick={() => onTileSelect(tile)}
               />
             </div>
