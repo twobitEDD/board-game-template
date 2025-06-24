@@ -86,7 +86,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     }
   }, [gameConfig])
 
-  // Debounced score calculation (delays expensive calculations)
+  // Simplified score calculation (reduced timeouts to prevent layout issues)
   const debouncedCalculateScore = useCallback((boardTiles: TileItem[], placedTiles: TileItem[]) => {
     // Prevent infinite loops by checking if we're already calculating
     if (isCalculatingRef.current) {
@@ -98,21 +98,12 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       clearTimeout(scoreCalculationTimeoutRef.current)
     }
 
-    // Skip calculation if we're in a rapid interaction phase
-    interactionCountRef.current += 1
-    if (interactionCountRef.current > 3) {
-      // During rapid interactions, delay calculations more
-      scoreCalculationTimeoutRef.current = setTimeout(() => {
-        performScoreCalculation(boardTiles, placedTiles)
-        interactionCountRef.current = 0
-      }, 300)
-    } else {
-      // Normal interaction, shorter delay
-      scoreCalculationTimeoutRef.current = setTimeout(() => {
-        performScoreCalculation(boardTiles, placedTiles)
-      }, 100)
-    }
-  }, []) // Empty dependency array to prevent re-creation
+    // Longer delay to reduce frequency and prevent layout shifts
+    scoreCalculationTimeoutRef.current = setTimeout(() => {
+      performScoreCalculation(boardTiles, placedTiles)
+      interactionCountRef.current = 0
+    }, 500) // Increased from 100-300ms to 500ms
+  }, [])
 
   // Throttled score calculation (prevents too frequent execution)
   const performScoreCalculation = useCallback((boardTiles: TileItem[], placedTiles: TileItem[]) => {
@@ -376,24 +367,15 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   const [isTurnStatusExpanded, setIsTurnStatusExpanded] = useState(false)
   const [isActionsExpanded, setIsActionsExpanded] = useState(false)
 
-  // Performance monitoring and cleanup (simplified to prevent re-render loops)
+  // Performance monitoring disabled to prevent layout issues
   useEffect(() => {
-    // Monitor performance every 10 turns
-    if (turnNumber % 10 === 0 && turnNumber > 0) {
-      const memoryInfo = (performance as any).memory
-      if (memoryInfo) {
-        console.log(`🔍 Turn ${turnNumber} Performance:`, {
-          boardTiles: boardTiles.length,
-          memory: `${Math.round(memoryInfo.usedJSHeapSize / 1024 / 1024)}MB`
-        })
-      }
+    // Performance monitoring disabled - was causing layout recalculations
+    // Only do minimal cleanup without frequent logging
+    if (turnNumber % 50 === 0 && turnNumber > 0 && (window as any).gc) {
+      // Very infrequent garbage collection hint
+      setTimeout(() => (window as any).gc(), 1000)
     }
-    
-    // Force garbage collection hint every 20 turns (if available)
-    if (turnNumber % 20 === 0 && turnNumber > 0 && (window as any).gc) {
-      setTimeout(() => (window as any).gc(), 100)
-    }
-  }, [turnNumber]) // Only depend on turnNumber
+  }, [turnNumber])
 
   // Update parent component with game data (simplified to prevent infinite loops)
   useEffect(() => {
@@ -414,6 +396,59 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     setGameMessage(`Selected ${getTileValue(tile.id)} tile. Click on the board to place it.`)
   }
 
+  // Find and return all tiles that remain connected to the main body after a removal
+  const getConnectedTiles = (allTiles: TileItem[]) => {
+    if (allTiles.length <= 1) return allTiles // Single tile or empty board
+    
+    // Find the center tile (if it exists) or use any tile as starting point
+    const centerTile = allTiles.find(tile => tile.location.x === 7 && tile.location.y === 7)
+    const startTile = centerTile || allTiles[0]
+    
+    if (!startTile) return [] // No tiles left
+    
+    // Create position map for O(1) lookup
+    const positionMap = new Map<string, TileItem>()
+    allTiles.forEach(tile => {
+      if (tile.location.x !== undefined && tile.location.y !== undefined) {
+        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
+      }
+    })
+    
+    // BFS to find all connected tiles
+    const visited = new Set<string>()
+    const connectedTiles: TileItem[] = []
+    const queue = [startTile]
+    const startKey = `${startTile.location.x},${startTile.location.y}`
+    visited.add(startKey)
+    connectedTiles.push(startTile)
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const x = current.location.x || 0
+      const y = current.location.y || 0
+      
+      // Check all 4 adjacent positions
+      const adjacent = [
+        { x: x - 1, y },
+        { x: x + 1, y },
+        { x, y: y - 1 },
+        { x, y: y + 1 }
+      ]
+      
+      for (const adj of adjacent) {
+        const adjKey = `${adj.x},${adj.y}`
+        if (!visited.has(adjKey) && positionMap.has(adjKey)) {
+          visited.add(adjKey)
+          const connectedTile = positionMap.get(adjKey)!
+          connectedTiles.push(connectedTile)
+          queue.push(connectedTile)
+        }
+      }
+    }
+    
+    return connectedTiles
+  }
+
   const handlePlacedTileClick = (tile: TileItem) => {
     // Only allow clicking on tiles placed this turn
     const isPlacedThisTurn = tilesPlacedThisTurn.some(placedTile => 
@@ -423,31 +458,79 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     
     if (!isPlacedThisTurn) return
     
-    // Remove tile from board
+    // Calculate what would remain after removing the clicked tile
     const newBoardTiles = boardTiles.filter(boardTile => 
       !(boardTile.location.x === tile.location.x && boardTile.location.y === tile.location.y)
     )
-    setBoardTiles(newBoardTiles)
     
-    // Remove tile from tiles placed this turn
     const newTilesPlacedThisTurn = tilesPlacedThisTurn.filter(placedTile => 
       !(placedTile.location.x === tile.location.x && placedTile.location.y === tile.location.y)
     )
-    setTilesPlacedThisTurn(newTilesPlacedThisTurn)
     
-    // Return tile to hand
+    const allRemainingTiles = [...newBoardTiles, ...newTilesPlacedThisTurn]
+    
+    // Find all tiles that remain connected to the main body
+    const connectedTiles = getConnectedTiles(allRemainingTiles)
+    const connectedPositions = new Set(
+      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
+    )
+    
+    // Separate connected tiles into board tiles and this turn's tiles
+    const finalBoardTiles = newBoardTiles.filter(boardTile =>
+      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const finalTilesPlacedThisTurn = newTilesPlacedThisTurn.filter(placedTile =>
+      connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
+    )
+    
+    // Find tiles that were removed due to being islands
+    const removedBoardTiles = newBoardTiles.filter(boardTile =>
+      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const removedPlacedTiles = newTilesPlacedThisTurn.filter(placedTile =>
+      !connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
+    )
+    
+    // Update game state with only connected tiles
+    setBoardTiles(finalBoardTiles)
+    setTilesPlacedThisTurn(finalTilesPlacedThisTurn)
+    
+    // Return the clicked tile to hand
     const returnedTile = {
       ...tile,
       location: { type: 'Hand', player: currentPlayerId }
     }
-    updateCurrentPlayerHand(prev => [...prev, returnedTile])
+    
+    // Return all removed tiles to hand (clicked tile + any islands)
+    const allRemovedTiles = [returnedTile, ...removedBoardTiles, ...removedPlacedTiles].map(t => ({
+      ...t,
+      location: { type: 'Hand', player: currentPlayerId }
+    }))
+    
+    updateCurrentPlayerHand(prev => [...prev, ...allRemovedTiles])
     
     // Update turn score
-    const newSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
+    const newSequences = calculateTurnSequences(finalBoardTiles, finalTilesPlacedThisTurn)
     const newTurnScore = newSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
     setTurnScore(newTurnScore)
     
-    setGameMessage(`Returned ${getTileValue(tile.id)} tile to hand. ${newTilesPlacedThisTurn.length > 0 ? 'Click green tiles to return them or ' : ''}End turn when ready.`)
+    // Create feedback message
+    const totalRemoved = allRemovedTiles.length
+    let message = `Returned ${getTileValue(tile.id)} tile to hand.`
+    
+    if (totalRemoved > 1) {
+      message += ` Also removed ${totalRemoved - 1} island tile(s) that became disconnected.`
+    }
+    
+    if (finalTilesPlacedThisTurn.length > 0) {
+      message += ` Click green tiles to return them or end turn when ready.`
+    } else {
+      message += ` End turn when ready.`
+    }
+    
+    setGameMessage(message)
   }
 
     const handleBoardClick = (x: number, y: number) => {
@@ -589,14 +672,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     const turnSequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
     const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
     
-    // Log scoring details for debugging (only in development)
-    if (process.env.NODE_ENV === 'development' && turnSequences.length > 0) {
-      console.log(`🎯 TURN SCORING: Found ${turnSequences.length} valid sequences`)
-      turnSequences.forEach((seq, index) => {
-        const tileValues = seq.tiles.map(t => getTileValue(t.id)).join(' + ')
-        console.log(`  Sequence ${index + 1}: [${tileValues}] = ${seq.sum} × 10 = ${seq.sum * 10} points`)
-      })
-    }
+    // Reduced logging to prevent performance issues
+    // (Detailed logging disabled to prevent layout recalculations)
     
     // Add turn score to current player's total score
     const newTotalScore = currentScore + finalTurnScore
@@ -632,9 +709,9 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
     setTurnScore(0)
     setTurnNumber(prev => prev + 1)
     
-    // Memory optimization: Clean up old unique IDs to prevent memory leaks
-    if (turnNumber % 10 === 0) {
-      // Refresh board tiles with new unique IDs to prevent memory accumulation
+    // Memory optimization reduced frequency to prevent layout issues
+    if (turnNumber % 50 === 0) {
+      // Less frequent board tile optimization to reduce layout recalculations
       setBoardTiles(prevTiles => 
         prevTiles.map(tile => ({
           ...tile,
@@ -749,29 +826,63 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       }
     }
 
-    // Remove tiles from board
+    // Calculate what would remain after removing all tiles placed this turn
     const tilesToRemove = tilesPlacedThisTurn
-    const newBoardTiles = boardTiles.filter(boardTile => 
+    const remainingBoardTiles = boardTiles.filter(boardTile => 
       !tilesToRemove.some(removeTile => 
         boardTile.location.x === removeTile.location.x && 
         boardTile.location.y === removeTile.location.y
       )
     )
-    setBoardTiles(newBoardTiles)
 
-    // Return tiles to hand
-    const returnedTiles = tilesToRemove.map(tile => ({
+    // Find all tiles that remain connected to the main body
+    const connectedTiles = getConnectedTiles(remainingBoardTiles)
+    const connectedPositions = new Set(
+      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
+    )
+    
+    // Separate connected from disconnected board tiles
+    const finalBoardTiles = remainingBoardTiles.filter(boardTile =>
+      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const removedIslandTiles = remainingBoardTiles.filter(boardTile =>
+      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+
+    // Update game state with only connected tiles
+    setBoardTiles(finalBoardTiles)
+
+    // Return all removed tiles to hand (placed this turn + any islands)
+    const allRemovedTiles = [...tilesToRemove, ...removedIslandTiles].map(tile => ({
       ...tile,
       location: { type: 'Hand', player: currentPlayerId }
     }))
-    updateCurrentPlayerHand(prev => [...prev, ...returnedTiles])
+    
+    console.log('🔄 FIVES UNDO TURN DEBUG:')
+    console.log('  - Hand size BEFORE undo:', handTiles.length)
+    console.log('  - Tiles placed this turn:', tilesPlacedThisTurn.length)
+    console.log('  - Total tiles being returned to hand:', allRemovedTiles.length)
+    
+    updateCurrentPlayerHand(prev => {
+      const newHand = [...prev, ...allRemovedTiles]
+      console.log('  - Hand size AFTER undo:', newHand.length)
+      return newHand
+    })
 
     // Reset turn state
     setTilesPlacedThisTurn([])
     setTurnScore(0)
     setSelectedTile(null)
 
-    setGameMessage(`Undid ${tilesToRemove.length} tile placements. Try a different strategy!`)
+    // Create feedback message
+    let message = `Undid ${tilesToRemove.length} tile placements.`
+    if (removedIslandTiles.length > 0) {
+      message += ` Also removed ${removedIslandTiles.length} island tile(s) that became disconnected.`
+    }
+    message += ` Try a different strategy!`
+    
+    setGameMessage(message)
   }
 
   const calculateTurnSequences = useMemo(() => {
@@ -1096,15 +1207,17 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       return { isValid: true, error: null }
     }
 
-    // Check adjacency to existing tiles - optimized check with limit
-    const tilesToCheck = allTiles.length > 50 ? allTiles.slice(-30) : allTiles
-    const isAdjacent = tilesToCheck.some(tile => {
-      const tx = tile.location.x || 0
-      const ty = tile.location.y || 0
-      return (Math.abs(tx - x) === 1 && ty === y) || (tx === x && Math.abs(ty - y) === 1)
-    })
-    if (!isAdjacent && allTiles.length <= 50) {
-      return { isValid: false, error: "Must be adjacent to existing tiles" }
+    // Check adjacency to existing tiles - optimized check with limit (unless islands are allowed)
+    if (!gameConfig.allowIslands) {
+      const tilesToCheck = allTiles.length > 50 ? allTiles.slice(-30) : allTiles
+      const isAdjacent = tilesToCheck.some(tile => {
+        const tx = tile.location.x || 0
+        const ty = tile.location.y || 0
+        return (Math.abs(tx - x) === 1 && ty === y) || (tx === x && Math.abs(ty - y) === 1)
+      })
+      if (!isAdjacent && allTiles.length <= 50) {
+        return { isValid: false, error: "Must be adjacent to existing tiles" }
+      }
     }
 
     // Check contiguity within the turn (tile-agnostic - any tile should follow same pattern)
@@ -1118,6 +1231,108 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       if (!allSameRow && !allSameCol) {
         return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
       }
+      
+      // Check for contiguity, considering existing tiles that might fill gaps
+      if (allSameRow) {
+        const y = yValues[0]
+        const sortedX = [...xValues].sort((a, b) => a - b)
+        
+        // Check if there are existing tiles that could fill any gaps
+        for (let i = 1; i < sortedX.length; i++) {
+          const gap = sortedX[i] - sortedX[i-1]
+          if (gap > 1) {
+            // Check if existing tiles fill the gap
+            let gapFilled = true
+            for (let fillX = sortedX[i-1] + 1; fillX < sortedX[i]; fillX++) {
+              const hasExistingTile = allTiles.some(tile => 
+                tile.location.x === fillX && tile.location.y === y
+              )
+              if (!hasExistingTile) {
+                gapFilled = false
+                break
+              }
+            }
+            if (!gapFilled) {
+              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
+            }
+          }
+        }
+      } else if (allSameCol) {
+        const x = xValues[0]
+        const sortedY = [...yValues].sort((a, b) => a - b)
+        
+        // Check if there are existing tiles that could fill any gaps
+        for (let i = 1; i < sortedY.length; i++) {
+          const gap = sortedY[i] - sortedY[i-1]
+          if (gap > 1) {
+            // Check if existing tiles fill the gap
+            let gapFilled = true
+            for (let fillY = sortedY[i-1] + 1; fillY < sortedY[i]; fillY++) {
+              const hasExistingTile = allTiles.some(tile => 
+                tile.location.x === x && tile.location.y === fillY
+              )
+              if (!hasExistingTile) {
+                gapFilled = false
+                break
+              }
+            }
+            if (!gapFilled) {
+              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
+            }
+          }
+        }
+      }
+    }
+
+    // Check 5-tile sequence limits - prevent placing tiles that would create sequences longer than 5
+    const allTilesWithNew = [...allTiles, { 
+      id: NumberTileId.One, // Dummy tile for position checking
+      uniqueId: 'temp', 
+      location: { type: 'Board', x, y } 
+    }]
+    
+    // Create position map for sequence checking
+    const positionMap = new Map<string, TileItem>()
+    allTilesWithNew.forEach(tile => {
+      if (tile.location.x !== undefined && tile.location.y !== undefined) {
+        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
+      }
+    })
+    
+    // Check horizontal sequence length at this position
+    let leftX = x
+    while (leftX > 0 && positionMap.has(`${leftX - 1},${y}`)) {
+      leftX--
+    }
+    let horizontalCount = 0
+    for (let currentX = leftX; currentX < 15; currentX++) {
+      if (positionMap.has(`${currentX},${y}`)) {
+        horizontalCount++
+      } else {
+        break
+      }
+    }
+    
+    if (horizontalCount > 5) {
+      return { isValid: false, error: `Would create horizontal sequence of ${horizontalCount} tiles (max 5)` }
+    }
+    
+    // Check vertical sequence length at this position
+    let topY = y
+    while (topY > 0 && positionMap.has(`${x},${topY - 1}`)) {
+      topY--
+    }
+    let verticalCount = 0
+    for (let currentY = topY; currentY < 15; currentY++) {
+      if (positionMap.has(`${x},${currentY}`)) {
+        verticalCount++
+      } else {
+        break
+      }
+    }
+    
+    if (verticalCount > 5) {
+      return { isValid: false, error: `Would create vertical sequence of ${verticalCount} tiles (max 5)` }
     }
 
     return { isValid: true, error: null }
@@ -1142,8 +1357,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       if (!centerOrAdjacent) {
         return { isValid: false, error: "First tile must be on or adjacent to center star" }
       }
-    } else {
-      // Check adjacency - at least one placed tile must be adjacent to existing tiles
+    } else if (!gameConfig.allowIslands) {
+      // Check adjacency - at least one placed tile must be adjacent to existing tiles (unless islands are allowed)
       // Optimized with position set for O(1) lookup
       const existingPositions = new Set<string>()
       existingTiles.forEach(tile => {
@@ -1167,7 +1382,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       }
     }
 
-    // Check turn contiguity - all placed tiles must be in same row OR same column
+    // Check turn contiguity - all placed tiles must form a contiguous line
     if (placedTiles.length > 1) {
       const xValues = placedTiles.map(tile => tile.location.x || 0)
       const yValues = placedTiles.map(tile => tile.location.y || 0)
@@ -1177,6 +1392,57 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
       
       if (!allSameRow && !allSameCol) {
         return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
+      }
+      
+      // Check for contiguity, considering existing tiles that might fill gaps
+      if (allSameRow) {
+        const y = yValues[0]
+        const sortedX = [...xValues].sort((a, b) => a - b)
+        
+        // Check if there are existing tiles that could fill any gaps
+        for (let i = 1; i < sortedX.length; i++) {
+          const gap = sortedX[i] - sortedX[i-1]
+          if (gap > 1) {
+            // Check if existing tiles fill the gap
+            let gapFilled = true
+            for (let fillX = sortedX[i-1] + 1; fillX < sortedX[i]; fillX++) {
+              const hasExistingTile = existingTiles.some(tile => 
+                tile.location.x === fillX && tile.location.y === y
+              )
+              if (!hasExistingTile) {
+                gapFilled = false
+                break
+              }
+            }
+            if (!gapFilled) {
+              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
+            }
+          }
+        }
+      } else if (allSameCol) {
+        const x = xValues[0]
+        const sortedY = [...yValues].sort((a, b) => a - b)
+        
+        // Check if there are existing tiles that could fill any gaps
+        for (let i = 1; i < sortedY.length; i++) {
+          const gap = sortedY[i] - sortedY[i-1]
+          if (gap > 1) {
+            // Check if existing tiles fill the gap
+            let gapFilled = true
+            for (let fillY = sortedY[i-1] + 1; fillY < sortedY[i]; fillY++) {
+              const hasExistingTile = existingTiles.some(tile => 
+                tile.location.x === x && tile.location.y === fillY
+              )
+              if (!hasExistingTile) {
+                gapFilled = false
+                break
+              }
+            }
+            if (!gapFilled) {
+              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
+            }
+          }
+        }
       }
     }
 
@@ -1244,13 +1510,13 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
   // Validation caching and throttling for performance
   const validationCacheRef = useRef<Map<string, boolean>>(new Map())
 
-  // Clear validation cache periodically to prevent memory leaks
+  // Clear validation cache only when needed to prevent memory leaks
   useEffect(() => {
     const clearCacheInterval = setInterval(() => {
-      if (validationCacheRef.current.size > 100) {
+      if (validationCacheRef.current.size > 200) { // Higher threshold
         validationCacheRef.current.clear()
       }
-    }, 10000) // Every 10 seconds
+    }, 60000) // Every 60 seconds instead of 10
 
     return () => clearInterval(clearCacheInterval)
   }, [])
@@ -1475,26 +1741,8 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
                   {turnScore > 0 && (
                     <div style={{ fontSize: '11px', opacity: 0.9 }}>
                       {(() => {
-                        // Emergency circuit breaker - don't calculate sequences in render if there are performance issues
-                        if (circularPatternDetectedRef.current) {
-                          return `Emergency mode - End turn to see scoring`
-                        }
-                        
-                        // Only recalculate sequences for display if we have a reasonable number of tiles
-                        if (tilesPlacedThisTurn.length > 3) {
-                          return `${tilesPlacedThisTurn.length} tiles placed - End turn to see full scoring`
-                        }
-                        
-                        try {
-                          const sequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
-                          return sequences.map(seq => {
-                            const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
-                            return `${tileValues}=${seq.sum}(×10)`
-                          }).join(' | ')
-                        } catch (error) {
-                          console.warn('⚠️ Error in sequence display calculation:', error)
-                          return `Calculating... End turn to see scores`
-                        }
+                        // Simplified display to prevent layout calculations during render
+                        return `${tilesPlacedThisTurn.length} tiles placed - ${turnScore}pts - End turn to finalize`
                       })()}
                     </div>
                   )}
@@ -1747,8 +1995,8 @@ const gameBoardWrapperStyle = css`
 
 const handStyle = css`
   grid-area: hand;
-  background: rgba(0, 0, 0, 0.3);
-  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(139, 69, 19, 0.3);
+  border-top: 2px solid rgba(255, 215, 0, 0.2);
   min-height: 120px;
   max-height: 160px;
   display: flex;
@@ -1773,7 +2021,7 @@ const handHeaderMainStyle = css`
 `;
 
 const handLabelStyle = css`
-  color: white;
+  color: #F5E6A3;
   font-size: 14px;
   font-weight: 700;
 `

@@ -15,6 +15,7 @@ export interface GameConfig {
   explosionsEnabled: boolean
   payoutMode: 'winner-take-all' | 'split-by-score'
   soloChallenge?: 'classic' | 'speedrun' | 'perfectionist' | 'minimalist'
+  allowIslands: boolean
 }
 
 // Gentle quilting animations
@@ -42,6 +43,7 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
   const [explosionsEnabled, setExplosionsEnabled] = useState<boolean>(false)
   const [payoutMode, setPayoutMode] = useState<'winner-take-all' | 'split-by-score'>('winner-take-all')
   const [soloChallenge, setSoloChallenge] = useState<'classic' | 'speedrun' | 'perfectionist' | 'minimalist'>('classic')
+  const [allowIslands, setAllowIslands] = useState<boolean>(false)
   const [currentStep, setCurrentStep] = useState<'playType' | 'playerCount' | 'playerNames' | 'gameOptions'>('playType')
 
   const handlePlayTypeSelect = (type: 'local' | 'online') => {
@@ -92,7 +94,8 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
         tilesPerPlayer,
         explosionsEnabled,
         payoutMode,
-        soloChallenge: playerCount === 1 ? soloChallenge : undefined
+        soloChallenge: playerCount === 1 ? soloChallenge : undefined,
+        allowIslands
       })
     }
   }
@@ -128,13 +131,13 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
     <div css={quiltingWorkshopStyle}>
       <div css={workshopTableStyle}>
         <div css={workshopSignStyle}>
-          <h1 css={embroideredTitleStyle}>🧶 FIVES QUILTING WORKSHOP 🧶</h1>
-          <p css={workshopMottoStyle}>Where Every Patch Tells a Story</p>
+          <h1 css={embroideredTitleStyle}>🔮 SUMMONING LOOMS 🔮</h1>
+          <p css={workshopMottoStyle}>Weave the Threads of Fate</p>
         </div>
 
         {currentStep === 'playType' && (
           <div css={stepContainerStyle}>
-            <h2 css={stepTitleStyle}>🏠 Choose Your Workshop Style</h2>
+            <h2 css={stepTitleStyle}>🔮 Choose Your Summoning Style</h2>
             <div css={quiltingOptionsStyle}>
               <button 
                 css={quiltingOptionStyle}
@@ -143,7 +146,7 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
                 <div css={quiltingIconStyle}>🏡</div>
                 <div css={quiltingTextStyle}>
                   <div css={optionTitleStyle}>Cozy Home Circle</div>
-                  <div css={optionDescStyle}>Gather 'round the quilting table with friends</div>
+                  <div css={optionDescStyle}>Gather 'round the summoning table with friends</div>
                 </div>
               </button>
               
@@ -153,8 +156,8 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
               >
                 <div css={quiltingIconStyle}>🌐</div>
                 <div css={quiltingTextStyle}>
-                  <div css={optionTitleStyle}>Online Quilting Bee</div>
-                  <div css={optionDescStyle}>Join quilters from around the world</div>
+                  <div css={optionTitleStyle}>Online Coven</div>
+                  <div css={optionDescStyle}>Join summoners from around the world</div>
                 </div>
               </button>
             </div>
@@ -163,11 +166,11 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
 
         {currentStep === 'playerCount' && (
           <div css={stepContainerStyle}>
-            <h2 css={stepTitleStyle}>👥 How Many Quilters?</h2>
+            <h2 css={stepTitleStyle}>👥 How Many Summoners?</h2>
             <p css={stepDescStyle}>
               {playType === 'local' 
-                ? 'How many will join your quilting circle? (Choose 1 for solo practice)' 
-                : 'Select your quilting bee size (1 for peaceful solo crafting)'}
+                ? 'How many will join your summoning circle? (Choose 1 for solo practice)' 
+                : 'Select your coven size (1 for peaceful solo summoning)'}
             </p>
             <div css={quilterCountGridStyle}>
               {[1, 2, 3, 4].map(count => (
@@ -178,13 +181,13 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
                 >
                   <div css={quilterCountNumberStyle}>{count}</div>
                   <div css={quilterCountLabelStyle}>
-                    {count === 1 ? 'Solo Crafter' : 'Quilters'}
+                    {count === 1 ? 'Solo Summoner' : 'Summoners'}
                   </div>
                 </button>
               ))}
             </div>
             <button css={backButtonStyle} onClick={handleBack}>
-              🧶 ← Back to Workshop
+              🔮 ← Back to Loom
             </button>
           </div>
         )}
@@ -275,6 +278,31 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
                   >
                     💥 Challenging
                   </button>
+                </div>
+              </div>
+
+              {/* Allow Islands */}
+              <div css={configSectionStyle}>
+                <h3 css={configTitleStyle}>🏝️ Placement Rules</h3>
+                <div css={configButtonGroupStyle}>
+                  <button
+                    css={[configButtonStyle, !allowIslands && selectedConfigStyle]}
+                    onClick={() => setAllowIslands(false)}
+                  >
+                    🔗 Connected
+                  </button>
+                  <button
+                    css={[configButtonStyle, allowIslands && selectedConfigStyle]}
+                    onClick={() => setAllowIslands(true)}
+                  >
+                    🏝️ Allow Islands
+                  </button>
+                </div>
+                <div css={configDescStyle}>
+                  {allowIslands 
+                    ? "Tiles can be placed anywhere on the board, creating separate groups"
+                    : "All tiles must connect to existing tiles on the board"
+                  }
                 </div>
               </div>
 
@@ -374,39 +402,26 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
   )
 }
 
-// Styles
+// Styles  
 const quiltingWorkshopStyle = css`
   width: 100vw;
   height: 100vh;
   background: 
-    linear-gradient(135deg, 
-      #F5E6D3 0%,   /* Cream fabric */
-      #E8D5C1 25%,  /* Light tan */
-      #F0E2CE 50%,  /* Warm beige */
-      #E6D4C1 75%,  /* Soft brown */
-      #F5E6D3 100%  /* Back to cream */
+    /* Warm cozy night sky matching reference */
+    linear-gradient(180deg, 
+      #2d1810 0%,     /* Deep warm brown night sky */
+      #3d2415 30%,    /* Mid warm brown */
+      #4a2c18 60%,    /* Lighter warm brown */
+      #3d2415 100%    /* Back to deep warm brown */
     );
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Arial', sans-serif;
+  font-family: 'Quicksand', sans-serif;
   padding: 20px;
   box-sizing: border-box;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  
-  /* Fabric texture pattern */
-  background-image: 
-    repeating-linear-gradient(45deg, 
-      rgba(139, 69, 19, 0.02) 0px, 
-      rgba(139, 69, 19, 0.02) 2px, 
-      transparent 2px, 
-      transparent 20px),
-    repeating-linear-gradient(-45deg, 
-      rgba(139, 69, 19, 0.02) 0px, 
-      rgba(139, 69, 19, 0.02) 2px, 
-      transparent 2px, 
-      transparent 20px);
   
   @media (max-width: 768px) {
     padding: 15px;
@@ -422,14 +437,13 @@ const quiltingWorkshopStyle = css`
 
 const workshopTableStyle = css`
   background: 
-    linear-gradient(145deg, #f5f0e8 0%, #e8ddc8 100%),
-    radial-gradient(circle at 30% 70%, rgba(139, 69, 19, 0.1) 0%, transparent 50%);
-  border-radius: 20px;
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.95) 0%, 
+      rgba(160, 82, 45, 0.95) 30%, 
+      rgba(218, 165, 32, 0.95) 70%, 
+      rgba(139, 69, 19, 0.95) 100%);
+  border-radius: 16px;
   padding: 40px;
-  border: 3px solid #8b4513;
-  box-shadow: 
-    0 20px 40px rgba(139, 69, 19, 0.3),
-    inset 0 2px 10px rgba(139, 69, 19, 0.1);
   max-width: 600px;
   width: 100%;
   text-align: center;
@@ -438,29 +452,21 @@ const workshopTableStyle = css`
   -webkit-overflow-scrolling: touch;
   position: relative;
   
-  /* Quilting stitches around border */
-  &::after {
-    content: '';
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    border: 2px dashed #8b4513;
-    border-radius: 12px;
-    pointer-events: none;
-    opacity: 0.4;
-  }
+  /* Warm cozy atmosphere like reference */
+  background-image: 
+    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.1) 1px, transparent 1px),
+    radial-gradient(circle at 75% 75%, rgba(139, 69, 19, 0.1) 1px, transparent 1px);
+  background-size: 30px 30px, 20px 20px;
   
   @media (max-width: 768px) {
     padding: 30px;
-    border-radius: 15px;
+    border-radius: 12px;
     max-height: calc(100vh - 30px);
   }
   
   @media (max-width: 480px) {
     padding: 20px;
-    border-radius: 12px;
+    border-radius: 10px;
     max-height: calc(100vh - 20px);
   }
 `
@@ -473,13 +479,11 @@ const workshopSignStyle = css`
 
 const embroideredTitleStyle = css`
   margin: 0 0 10px 0;
-  color: #8b4513;
+  color: #FFD700;
   font-size: 48px;
   font-weight: 900;
-  text-shadow: 
-    1px 1px 0px #d4c4a8,
-    2px 2px 2px rgba(139, 69, 19, 0.3);
-  font-family: 'Arial Black', Arial, sans-serif;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4);
+  font-family: 'Fredoka One', cursive;
   animation: ${gentleFloat} 4s ease-in-out infinite;
   
   @media (max-width: 768px) {
@@ -493,10 +497,11 @@ const embroideredTitleStyle = css`
 
 const workshopMottoStyle = css`
   margin: 0 0 40px 0;
-  color: rgba(139, 69, 19, 0.8);
+  color: #F5DEB3;
   font-size: 16px;
   font-weight: 600;
   font-style: italic;
+  font-family: 'Quicksand', sans-serif;
   
   @media (max-width: 768px) {
     margin: 0 0 30px 0;
@@ -516,17 +521,19 @@ const stepContainerStyle = css`
 `
 
 const stepTitleStyle = css`
-  color: #8b4513;
+  color: #FFD700;
   font-size: 24px;
   font-weight: 700;
   margin: 0 0 10px 0;
-  text-shadow: 0 2px 4px rgba(139, 69, 19, 0.3);
+  font-family: 'Fredoka One', cursive;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 `
 
 const stepDescStyle = css`
-  color: rgba(139, 69, 19, 0.8);
+  color: #F5DEB3;
   font-size: 14px;
   margin: 0 0 30px 0;
+  font-family: 'Quicksand', sans-serif;
 `
 
 const quiltingOptionsStyle = css`
@@ -547,8 +554,10 @@ const quiltingOptionsStyle = css`
 
 const quiltingOptionStyle = css`
   background: 
-    linear-gradient(145deg, #f8f3eb 0%, #ede4d3 100%);
-  border: 3px solid #8b4513;
+    linear-gradient(145deg, 
+      rgba(139, 69, 19, 0.25) 0%, 
+      rgba(160, 82, 45, 0.2) 100%);
+  border: 3px solid rgba(218, 165, 32, 0.6);
   border-radius: 15px;
   padding: 30px 20px;
   cursor: pointer;
@@ -560,8 +569,11 @@ const quiltingOptionStyle = css`
   min-height: 44px;
   position: relative;
   overflow: hidden;
+  box-shadow: 
+    0 6px 16px rgba(139, 69, 19, 0.3),
+    inset 0 1px 3px rgba(255, 215, 0, 0.3);
   
-  /* Fabric texture overlay */
+  /* Mystical texture overlay */
   &::before {
     content: '';
     position: absolute;
@@ -570,15 +582,11 @@ const quiltingOptionStyle = css`
     right: 0;
     bottom: 0;
     background: 
-      repeating-linear-gradient(
-        45deg,
-        transparent,
-        transparent 8px,
-        rgba(139, 69, 19, 0.05) 8px,
-        rgba(139, 69, 19, 0.05) 10px
-      );
+      radial-gradient(circle at 30% 30%, rgba(255, 215, 0, 0.05) 1px, transparent 1px),
+      radial-gradient(circle at 70% 70%, rgba(139, 69, 19, 0.03) 1px, transparent 1px);
+    background-size: 20px 20px, 15px 15px;
     pointer-events: none;
-    opacity: 0.6;
+    opacity: 0.8;
   }
   
   @media (max-width: 768px) {
@@ -594,19 +602,26 @@ const quiltingOptionStyle = css`
   }
   
   &:hover {
-    background: linear-gradient(145deg, #fff8f0 0%, #f0e7d6 100%);
-    border-color: #a0522d;
+    background: 
+      linear-gradient(145deg, 
+        rgba(255, 215, 0, 0.3) 0%, 
+        rgba(218, 165, 32, 0.25) 100%);
+    border-color: #FFD700;
     transform: translateY(-5px);
     box-shadow: 
-      0 10px 20px rgba(139, 69, 19, 0.2),
-      0 0 15px rgba(218, 165, 32, 0.3);
+      0 12px 24px rgba(255, 215, 0, 0.4),
+      0 0 20px rgba(218, 165, 32, 0.6),
+      inset 0 1px 4px rgba(255, 215, 0, 0.5);
     animation: ${stitchingGlow} 2s ease-in-out infinite;
   }
   
   @media (hover: none) {
     &:hover {
       transform: none;
-      background: linear-gradient(145deg, #fff8f0 0%, #f0e7d6 100%);
+      background: 
+        linear-gradient(145deg, 
+          rgba(255, 215, 0, 0.2) 0%, 
+          rgba(218, 165, 32, 0.15) 100%);
     }
   }
 `
@@ -633,10 +648,13 @@ const quiltingTextStyle = css`
 `
 
 const optionTitleStyle = css`
-  color: #8b4513;
+  color: #FFD700;
   font-size: 18px;
   font-weight: 700;
   margin-bottom: 5px;
+  text-shadow: 
+    0 0 6px rgba(255, 215, 0, 0.8),
+    0 1px 3px rgba(139, 69, 19, 0.6);
   
   @media (max-width: 768px) {
     font-size: 16px;
@@ -648,8 +666,9 @@ const optionTitleStyle = css`
 `
 
 const optionDescStyle = css`
-  color: rgba(139, 69, 19, 0.7);
+  color: #F5E6A3;
   font-size: 12px;
+  text-shadow: 0 1px 2px rgba(139, 69, 19, 0.6);
   
   @media (max-width: 480px) {
     font-size: 11px;
@@ -670,8 +689,10 @@ const quilterCountGridStyle = css`
 
 const quilterCountButtonStyle = css`
   background: 
-    linear-gradient(145deg, #f8f3eb 0%, #ede4d3 100%);
-  border: 3px solid #8b4513;
+    linear-gradient(145deg, 
+      rgba(139, 69, 19, 0.3) 0%, 
+      rgba(160, 82, 45, 0.25) 100%);
+  border: 3px solid rgba(218, 165, 32, 0.6);
   border-radius: 15px;
   padding: 30px 20px;
   cursor: pointer;
@@ -680,28 +701,38 @@ const quilterCountButtonStyle = css`
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  box-shadow: 
+    0 4px 12px rgba(139, 69, 19, 0.4),
+    inset 0 1px 3px rgba(255, 215, 0, 0.3);
   
   &:hover {
-    background: linear-gradient(145deg, #fff8f0 0%, #f0e7d6 100%);
-    border-color: #daa520;
+    background: 
+      linear-gradient(145deg, 
+        rgba(255, 215, 0, 0.3) 0%, 
+        rgba(218, 165, 32, 0.25) 100%);
+    border-color: #FFD700;
     transform: translateY(-3px);
     box-shadow: 
-      0 8px 16px rgba(139, 69, 19, 0.2),
-      0 0 10px rgba(218, 165, 32, 0.4);
+      0 8px 20px rgba(255, 215, 0, 0.4),
+      0 0 15px rgba(218, 165, 32, 0.6),
+      inset 0 1px 4px rgba(255, 215, 0, 0.5);
   }
 `
 
 const quilterCountNumberStyle = css`
-  color: #8b4513;
+  color: #FFD700;
   font-size: 36px;
   font-weight: 900;
-  text-shadow: 0 2px 4px rgba(139, 69, 19, 0.3);
+  text-shadow: 
+    0 0 8px rgba(255, 215, 0, 0.8),
+    0 2px 4px rgba(139, 69, 19, 0.5);
 `
 
 const quilterCountLabelStyle = css`
-  color: rgba(139, 69, 19, 0.8);
+  color: #F5E6A3;
   font-size: 14px;
   font-weight: 600;
+  text-shadow: 0 1px 2px rgba(139, 69, 19, 0.6);
 `
 
 const nameTagsContainerStyle = css`
@@ -905,6 +936,15 @@ const selectedConfigStyle = css`
   color: #8b4513 !important;
   box-shadow: 0 0 10px rgba(218, 165, 32, 0.5);
   font-weight: 700;
+`
+
+const configDescStyle = css`
+  color: rgba(139, 69, 19, 0.8);
+  font-size: 12px;
+  margin-top: 10px;
+  font-style: italic;
+  text-align: center;
+  line-height: 1.4;
 `
 
 const sliderContainerStyle = css`

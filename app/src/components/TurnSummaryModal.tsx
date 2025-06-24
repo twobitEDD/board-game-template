@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
 import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { QuiltingWorkshopTheme } from './QuiltingWorkshopTheme'
 
 interface TileItem {
   id: NumberTileId
@@ -140,12 +141,12 @@ const overlayStyle = css`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(3px);
   padding: 20px;
   box-sizing: border-box;
   
@@ -157,35 +158,45 @@ const overlayStyle = css`
 `
 
 const modalStyle = css`
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  border-radius: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.95) 0%, 
+      rgba(160, 82, 45, 0.95) 50%, 
+      rgba(218, 165, 32, 0.95) 100%);
+  border-radius: 16px;
   max-width: 500px;
   width: 100%;
   max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
-  color: white;
+  color: ${QuiltingWorkshopTheme.colors.text};
   overflow: hidden;
+  
+  /* Warm cozy atmosphere like reference */
+  background-image: 
+    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.1) 1px, transparent 1px),
+    radial-gradient(circle at 75% 75%, rgba(139, 69, 19, 0.1) 1px, transparent 1px);
+  background-size: 30px 30px, 20px 20px;
   
   @media (max-width: 768px) {
     max-height: calc(100vh - 20px);
-    border-radius: 15px;
+    border-radius: 12px;
     width: 100%;
     max-width: none;
   }
   
   @media (max-width: 480px) {
-    border-radius: 10px;
+    border-radius: 8px;
   }
 `
 
 const headerStyle = css`
   flex-shrink: 0;
   padding: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.2) 0%, 
+      rgba(218, 165, 32, 0.15) 100%);
   text-align: center;
   
   @media (max-width: 768px) {
@@ -198,27 +209,34 @@ const headerStyle = css`
 `
 
 const titleStyle = css`
-  margin: 0 0 10px 0;
-  font-size: 24px;
-  font-weight: 900;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  margin: 0 0 8px 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
   
   @media (max-width: 768px) {
-    font-size: 20px;
+    font-size: 1.5rem;
   }
   
   @media (max-width: 480px) {
-    font-size: 18px;
+    font-size: 1.3rem;
   }
 `
 
 const playerNameStyle = css`
-  font-size: 14px;
-  opacity: 0.8;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 1.2rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
   font-weight: 600;
   
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+  }
+  
   @media (max-width: 480px) {
-    font-size: 12px;
+    font-size: 1rem;
   }
 `
 
@@ -226,144 +244,164 @@ const contentStyle = css`
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   
   @media (max-width: 768px) {
     padding: 15px;
+    gap: 15px;
   }
   
   @media (max-width: 480px) {
     padding: 12px;
+    gap: 12px;
   }
 `
 
 const sectionStyle = css`
-  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 `
 
 const sectionTitleStyle = css`
-  margin: 0 0 10px 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #4CAF50;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  margin: 0;
+  
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 1rem;
+  }
 `
 
 const tilesDisplayStyle = css`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  
-  @media (max-width: 480px) {
-    gap: 6px;
-  }
 `
 
 const tileChipStyle = css`
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-  color: white;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-weight: 700;
-  font-size: 14px;
-  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  padding: 6px 12px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.3) 0%, 
+      rgba(218, 165, 32, 0.2) 100%);
+  border-radius: 8px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.text};
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
   gap: 6px;
-  
-  @media (max-width: 480px) {
-    padding: 6px 10px;
-    font-size: 12px;
-    border-radius: 8px;
-    gap: 4px;
-  }
 `
 
 const positionStyle = css`
-  font-size: 10px;
+  font-size: 0.8rem;
   opacity: 0.8;
-  font-weight: 500;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
 `
 
 const sequencesListStyle = css`
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 `
 
 const sequenceItemStyle = css`
   padding: 12px;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 215, 0, 0.1);
 `
 
 const validSequenceStyle = css`
-  background: rgba(76, 175, 80, 0.2);
-  border-color: rgba(76, 175, 80, 0.4);
+  background: 
+    linear-gradient(135deg, 
+      rgba(34, 197, 94, 0.2) 0%, 
+      rgba(22, 163, 74, 0.15) 100%);
 `
 
 const invalidSequenceStyle = css`
-  background: rgba(244, 67, 54, 0.2);
-  border-color: rgba(244, 67, 54, 0.4);
+  background: 
+    linear-gradient(135deg, 
+      rgba(239, 68, 68, 0.2) 0%, 
+      rgba(220, 38, 38, 0.15) 100%);
 `
 
 const sequenceCalculationStyle = css`
-  font-weight: 700;
-  font-size: 16px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.text};
   margin-bottom: 4px;
 `
 
 const sequenceScoreStyle = css`
-  font-size: 12px;
-  opacity: 0.9;
-  font-weight: 600;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.9rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
 `
 
 const noSequencesStyle = css`
-  color: rgba(255, 255, 255, 0.6);
-  font-style: italic;
+  padding: 12px;
   text-align: center;
-  padding: 20px;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-style: italic;
 `
 
 const scoreSummaryStyle = css`
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 15px;
-  margin-top: 20px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.15) 0%, 
+      rgba(218, 165, 32, 0.1) 100%);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 `
 
 const scoreRowStyle = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 0;
-  font-weight: 600;
-`
-
-const totalScoreRowStyle = css`
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  margin-top: 8px;
-  padding-top: 12px;
-  font-size: 18px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  color: ${QuiltingWorkshopTheme.colors.text};
 `
 
 const turnScoreValueStyle = css`
-  color: #4CAF50;
-  font-weight: 700;
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+`
+
+const totalScoreRowStyle = css`
+  border-top: 2px solid rgba(255, 215, 0, 0.3);
+  padding-top: 8px;
+  font-weight: bold;
 `
 
 const totalScoreValueStyle = css`
-  color: #FFD700;
-  font-weight: 900;
-  font-size: 20px;
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  font-size: 1.1rem;
 `
 
 const footerStyle = css`
   flex-shrink: 0;
   padding: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.2) 0%, 
+      rgba(160, 82, 45, 0.15) 100%);
   
   @media (max-width: 768px) {
     padding: 15px;
@@ -375,45 +413,32 @@ const footerStyle = css`
 `
 
 const continueButtonStyle = css`
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-  color: white;
-  border: none;
-  border-radius: 12px;
   padding: 12px 24px;
-  font-size: 16px;
-  font-weight: 700;
+  background: 
+    linear-gradient(135deg, 
+      ${QuiltingWorkshopTheme.colors.accent} 0%, 
+      rgba(218, 165, 32, 0.8) 100%);
+  color: ${QuiltingWorkshopTheme.colors.text};
+  border: none;
+  border-radius: 8px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
-  min-height: 44px; /* Touch target size */
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+  }
   
   @media (max-width: 768px) {
-    padding: 14px 28px;
-    font-size: 16px;
-    border-radius: 10px;
+    padding: 10px 20px;
+    font-size: 0.9rem;
   }
   
   @media (max-width: 480px) {
-    padding: 16px 32px;
-    font-size: 14px;
-    width: 100%;
-    max-width: 280px;
-  }
-
-  &:hover {
-    background: linear-gradient(135deg, #45a049 0%, #4CAF50 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
-  }
-
-  &:active {
-    transform: translateY(0);
-  }
-  
-  @media (hover: none) {
-    &:hover {
-      transform: none;
-      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-    }
+    padding: 8px 16px;
+    font-size: 0.8rem;
   }
 ` 

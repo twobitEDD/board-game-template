@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
 import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { QuiltingWorkshopTheme } from './QuiltingWorkshopTheme'
 
 interface TileItem {
   id: NumberTileId
@@ -202,12 +203,12 @@ const overlayStyle = css`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(4px);
   padding: 20px;
   box-sizing: border-box;
   
@@ -216,385 +217,346 @@ const overlayStyle = css`
     align-items: flex-start;
     padding-top: 20px;
   }
-  
-  @media (max-width: 480px) {
-    padding: 5px;
-    padding-top: 10px;
-  }
 `
 
 const modalStyle = css`
-  background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-  border-radius: 24px;
-  border: 3px solid rgba(255, 215, 0, 0.3);
-  box-shadow: 
-    0 20px 60px rgba(0, 0, 0, 0.8),
-    0 0 30px rgba(255, 215, 0, 0.2);
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.96) 0%, 
+      rgba(160, 82, 45, 0.96) 30%, 
+      rgba(218, 165, 32, 0.96) 70%, 
+      rgba(139, 69, 19, 0.96) 100%);
+  border-radius: 20px;
   max-width: 600px;
   width: 100%;
   max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  color: white;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  color: ${QuiltingWorkshopTheme.colors.text};
+  overflow: hidden;
+  
+  /* Warm cozy atmosphere like reference */
+  background-image: 
+    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.12) 1px, transparent 1px),
+    radial-gradient(circle at 75% 75%, rgba(139, 69, 19, 0.08) 1px, transparent 1px);
+  background-size: 35px 35px, 25px 25px;
   
   @media (max-width: 768px) {
     max-height: calc(100vh - 20px);
-    border-radius: 20px;
-    border-width: 2px;
+    border-radius: 16px;
+    width: 100%;
     max-width: none;
   }
   
   @media (max-width: 480px) {
-    max-height: calc(100vh - 10px);
-    border-radius: 15px;
-    border-width: 1px;
+    border-radius: 12px;
   }
 `
 
 const headerStyle = css`
+  flex-shrink: 0;
+  padding: 24px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.25) 0%, 
+      rgba(218, 165, 32, 0.2) 50%, 
+      rgba(255, 215, 0, 0.15) 100%);
   text-align: center;
-  padding: 30px 20px 20px;
-  background: radial-gradient(circle at center, rgba(255, 215, 0, 0.2) 0%, transparent 70%);
-  position: relative;
-  overflow: hidden;
   
   @media (max-width: 768px) {
-    padding: 20px 15px 15px;
+    padding: 20px;
   }
   
   @media (max-width: 480px) {
-    padding: 15px 10px 10px;
-  }
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(45deg, transparent 30%, rgba(255, 215, 0, 0.1) 50%, transparent 70%);
-    animation: shimmer 2s ease-in-out infinite;
-  }
-
-  @keyframes shimmer {
-    0%, 100% { transform: translateX(-100%); }
-    50% { transform: translateX(100%); }
+    padding: 16px;
   }
 `
 
 const victoryIconStyle = css`
-  font-size: 64px;
-  margin-bottom: 10px;
-  animation: bounce 1.5s ease-in-out infinite;
-  
-  @media (max-width: 768px) {
-    font-size: 48px;
-    margin-bottom: 8px;
-  }
-  
-  @media (max-width: 480px) {
-    font-size: 40px;
-    margin-bottom: 6px;
-  }
-
-  @keyframes bounce {
-    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-    40% { transform: translateY(-10px); }
-    60% { transform: translateY(-5px); }
-  }
+  font-size: 3rem;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.6));
 `
 
 const victoryTitleStyle = css`
-  font-size: 48px;
-  font-weight: 900;
-  margin: 0;
-  background: linear-gradient(45deg, #FFD700, #FFA500, #FFD700);
-  background-size: 200% 200%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: goldShine 2s ease-in-out infinite;
-  text-shadow: 0 4px 8px rgba(255, 215, 0, 0.3);
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  margin: 0 0 8px 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4);
   
   @media (max-width: 768px) {
-    font-size: 36px;
+    font-size: 2rem;
   }
   
   @media (max-width: 480px) {
-    font-size: 28px;
-  }
-
-  @keyframes goldShine {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
+    font-size: 1.7rem;
   }
 `
 
 const winnerNameStyle = css`
-  font-size: 24px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 1.3rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
   font-weight: 700;
-  margin: 10px 0 5px 0;
-  color: #FFD700;
   
   @media (max-width: 768px) {
-    font-size: 20px;
+    font-size: 1.2rem;
   }
   
   @media (max-width: 480px) {
-    font-size: 18px;
+    font-size: 1.1rem;
   }
 `
 
 const closeGameStyle = css`
-  font-size: 14px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.9rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
   font-style: italic;
-  color: rgba(255, 255, 255, 0.8);
-  margin-top: 5px;
+  margin-top: 8px;
 `
 
 const scoreComparisonStyle = css`
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
   padding: 20px;
-  margin: 0 20px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
   
   @media (max-width: 768px) {
-    margin: 0 15px;
-    padding: 15px;
-    gap: 15px;
-  }
-  
-  @media (max-width: 480px) {
     flex-direction: column;
-    margin: 0 10px;
-    padding: 12px;
     gap: 12px;
+    padding: 16px;
   }
 `
 
 const scoreCardStyle = css`
-  text-align: center;
-  padding: 20px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.15) 0%, 
+      rgba(218, 165, 32, 0.12) 100%);
   border-radius: 12px;
-  background: rgba(76, 175, 80, 0.2);
-  border: 2px solid rgba(76, 175, 80, 0.4);
-  min-width: 150px;
+  padding: 16px;
+  text-align: center;
+  min-width: 120px;
   
   @media (max-width: 768px) {
-    padding: 15px;
-    min-width: 120px;
-  }
-  
-  @media (max-width: 480px) {
     width: 100%;
-    min-width: auto;
-    padding: 12px;
+    max-width: 200px;
   }
 `
 
 const loserCardStyle = css`
-  background: rgba(158, 158, 158, 0.2);
-  border-color: rgba(158, 158, 158, 0.4);
+  opacity: 0.8;
 `
 
 const playerLabelStyle = css`
-  font-size: 10px;
-  font-weight: 700;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.8rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  font-weight: 600;
+  margin-bottom: 4px;
+  text-transform: uppercase;
   letter-spacing: 1px;
-  opacity: 0.8;
-  margin-bottom: 5px;
 `
 
 const playerNameStyle = css`
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 10px;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.1rem;
+  color: ${QuiltingWorkshopTheme.colors.text};
+  font-weight: bold;
+  margin-bottom: 8px;
 `
 
 const winnerScoreStyle = css`
-  font-size: 32px;
-  font-weight: 900;
-  color: #FFD700;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 2rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  font-weight: bold;
   margin-bottom: 8px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
 `
 
 const loserScoreStyle = css`
-  font-size: 28px;
-  font-weight: 700;
-  color: #CCCCCC;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.8rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  font-weight: bold;
   margin-bottom: 8px;
 `
 
 const statsRowStyle = css`
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.75rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
   display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  opacity: 0.8;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
 `
 
 const vsStyle = css`
-  font-size: 20px;
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.6);
-  padding: 0 10px;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.5rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  font-weight: bold;
   
-  @media (max-width: 480px) {
-    display: none;
+  @media (max-width: 768px) {
+    font-size: 1.2rem;
   }
 `
 
 const winningsStyle = css`
-  margin: 30px 20px 20px;
   padding: 20px;
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(255, 140, 0, 0.1) 100%);
-  border-radius: 16px;
-  border: 2px solid rgba(255, 215, 0, 0.2);
+  flex: 1;
+  overflow-y: auto;
   
   @media (max-width: 768px) {
-    margin: 20px 15px 15px;
-    padding: 15px;
+    padding: 16px;
   }
   
   @media (max-width: 480px) {
-    margin: 15px 10px 10px;
     padding: 12px;
   }
 `
 
 const winningSectionTitleStyle = css`
-  margin: 0 0 15px 0;
-  font-size: 20px;
-  font-weight: 700;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.3rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  margin: 0 0 16px 0;
   text-align: center;
-  color: #FFD700;
 `
 
 const potValueStyle = css`
-  text-align: center;
-  margin-bottom: 20px;
-  padding: 15px;
-  background: rgba(0, 0, 0, 0.3);
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.2) 0%, 
+      rgba(218, 165, 32, 0.15) 100%);
   border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+  margin-bottom: 16px;
 `
 
 const potLabelStyle = css`
-  font-size: 12px;
-  opacity: 0.8;
-  margin-bottom: 5px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.9rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  margin-bottom: 4px;
 `
 
 const potAmountStyle = css`
-  font-size: 28px;
-  font-weight: 900;
-  color: #FFD700;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.8rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  font-weight: bold;
 `
 
 const winningsGridStyle = css`
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
   margin-bottom: 20px;
-  
-  @media (max-width: 768px) {
-    gap: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
 `
 
 const winningsItemStyle = css`
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.3) 0%, 
+      rgba(160, 82, 45, 0.2) 100%);
+  border-radius: 8px;
+  padding: 12px;
   text-align: center;
-  padding: 15px 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 `
 
 const winningsIconStyle = css`
-  font-size: 24px;
-  margin-bottom: 8px;
+  font-size: 1.5rem;
+  margin-bottom: 4px;
 `
 
 const winningsLabelStyle = css`
-  font-size: 11px;
-  opacity: 0.8;
-  margin-bottom: 5px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.8rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  margin-bottom: 4px;
 `
 
 const winningsValueStyle = css`
-  font-size: 16px;
-  font-weight: 700;
-  color: #FFD700;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 1rem;
+  color: ${QuiltingWorkshopTheme.colors.text};
+  font-weight: bold;
 `
 
 const tilesWonSectionStyle = css`
-  margin-top: 20px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.1) 0%, 
+      rgba(218, 165, 32, 0.08) 100%);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
 `
 
 const tilesWonLabelStyle = css`
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  text-align: center;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.9rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  margin-bottom: 8px;
 `
 
 const tilesWonDisplayStyle = css`
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  justify-content: center;
 `
 
 const wonTileChipStyle = css`
-  background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
-  color: #000;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 12px;
-  box-shadow: 0 2px 6px rgba(255, 215, 0, 0.4);
+  background: 
+    linear-gradient(135deg, 
+      rgba(255, 215, 0, 0.4) 0%, 
+      rgba(218, 165, 32, 0.3) 100%);
+  color: ${QuiltingWorkshopTheme.colors.text};
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  font-size: 0.8rem;
 `
 
 const moreTilesStyle = css`
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
+  padding: 4px 8px;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.8rem;
   font-style: italic;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
 `
 
 const gameStatsStyle = css`
-  margin: 20px;
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.15) 0%, 
+      rgba(160, 82, 45, 0.12) 100%);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
 `
 
 const statsSectionTitleStyle = css`
-  margin: 0 0 15px 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.1rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  margin: 0 0 12px 0;
   text-align: center;
 `
 
 const statsGridStyle = css`
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 12px;
 `
 
 const statItemStyle = css`
@@ -602,57 +564,90 @@ const statItemStyle = css`
 `
 
 const statValueStyle = css`
-  font-size: 20px;
-  font-weight: 700;
-  color: #4CAF50;
-  margin-bottom: 5px;
+  font-family: ${QuiltingWorkshopTheme.fonts.title};
+  font-size: 1.5rem;
+  color: ${QuiltingWorkshopTheme.colors.accent};
+  font-weight: bold;
+  margin-bottom: 4px;
 `
 
 const statLabelStyle = css`
-  font-size: 10px;
-  opacity: 0.8;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-size: 0.7rem;
+  color: ${QuiltingWorkshopTheme.colors.textSecondary};
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 `
 
 const footerStyle = css`
+  flex-shrink: 0;
   padding: 20px;
   display: flex;
-  gap: 15px;
+  gap: 12px;
   justify-content: center;
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.2) 0%, 
+      rgba(160, 82, 45, 0.15) 100%);
+  
+  @media (max-width: 768px) {
+    padding: 16px;
+    flex-direction: column;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 12px;
+  }
 `
 
 const primaryButtonStyle = css`
-  background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
-  color: #000;
+  padding: 12px 24px;
+  background: 
+    linear-gradient(135deg, 
+      ${QuiltingWorkshopTheme.colors.accent} 0%, 
+      rgba(218, 165, 32, 0.9) 100%);
+  color: ${QuiltingWorkshopTheme.colors.primary};
   border: none;
-  border-radius: 12px;
-  padding: 15px 30px;
-  font-size: 16px;
-  font-weight: 700;
+  border-radius: 8px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
-
+  
   &:hover {
-    background: linear-gradient(135deg, #FFA500 0%, #FFD700 100%);
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(255, 215, 0, 0.5);
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.5);
+  }
+  
+  @media (max-width: 768px) {
+    padding: 12px 20px;
+    font-size: 0.9rem;
   }
 `
 
 const secondaryButtonStyle = css`
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 13px 25px;
-  font-size: 16px;
-  font-weight: 600;
+  padding: 12px 24px;
+  background: 
+    linear-gradient(135deg, 
+      rgba(139, 69, 19, 0.8) 0%, 
+      rgba(160, 82, 45, 0.8) 100%);
+  color: ${QuiltingWorkshopTheme.colors.text};
+  border: none;
+  border-radius: 8px;
+  font-family: ${QuiltingWorkshopTheme.fonts.body};
+  font-weight: bold;
+  font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
-
+  
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-    transform: translateY(-2px);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(139, 69, 19, 0.4);
+  }
+  
+  @media (max-width: 768px) {
+    padding: 12px 20px;
+    font-size: 0.9rem;
   }
 ` 

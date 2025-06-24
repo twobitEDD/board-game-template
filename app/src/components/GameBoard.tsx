@@ -24,28 +24,28 @@ interface GameBoardProps {
   isValidPlacement: (x: number, y: number) => boolean
 }
 
-// Gentle floating yarn balls for ambiance
-function FloatingYarnBalls() {
-  const yarnBalls = Array.from({ length: 6 }, (_, i) => ({
+// Floating mystical orbs for ambiance
+function FloatingMysticalOrbs() {
+  const mysticalOrbs = Array.from({ length: 6 }, (_, i) => ({
     id: i,
     delay: Math.random() * 8,
     duration: 12 + Math.random() * 8,
     x: Math.random() * 100,
     size: 3 + Math.random() * 4,
-    color: ['#FFB6C1', '#98FB98', '#87CEEB', '#DDA0DD', '#FFE135', '#FF7F7F'][i]
+    color: ['#FFD700', '#FFA500', '#FF8C00', '#DAA520', '#B8860B', '#F4A460'][i]
   }))
 
   return (
-    <div css={yarnContainerStyle}>
-      {yarnBalls.map(ball => (
+    <div css={orbContainerStyle}>
+      {mysticalOrbs.map(orb => (
         <div
-          key={ball.id}
-          css={floatingYarnStyle({
-            delay: ball.delay,
-            duration: ball.duration,
-            x: ball.x,
-            size: ball.size,
-            color: ball.color
+          key={orb.id}
+          css={floatingOrbStyle({
+            delay: orb.delay,
+            duration: orb.duration,
+            x: orb.x,
+            size: orb.size,
+            color: orb.color
           })}
         />
       ))}
@@ -68,6 +68,64 @@ function StitchingRipple({ x, y, trigger }: { x: number, y: number, trigger: num
   )
 }
 
+// Zoom controls component
+function ZoomControls({ 
+  scale, 
+  onZoomIn, 
+  onZoomOut, 
+  onReset, 
+  isZoomedIn, 
+  isZoomedOut 
+}: {
+  scale: number
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onReset: () => void
+  isZoomedIn: boolean
+  isZoomedOut: boolean
+}) {
+  return (
+    <div css={zoomControlsStyle}>
+      <div css={zoomButtonGroupStyle}>
+        <button 
+          css={zoomButtonStyle}
+          onClick={onZoomIn}
+          title="Zoom In"
+        >
+          🔍+
+        </button>
+        <button 
+          css={zoomButtonStyle}
+          onClick={onZoomOut}
+          title="Zoom Out"  
+        >
+          🔍-
+        </button>
+        <button 
+          css={resetButtonStyle}
+          onClick={onReset}
+          title="Reset View"
+        >
+          🎯
+        </button>
+      </div>
+      <div css={zoomIndicatorStyle}>
+        {Math.round(scale * 100)}%
+      </div>
+      {isZoomedIn && (
+        <div css={zoomHintStyle}>
+          ✨ Magical quilt expansion active!
+        </div>
+      )}
+      {isZoomedOut && (
+        <div css={zoomHintStyle}>
+          🌟 Overview of the mystical loom
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function GameBoard({
   boardTiles,
   tilesPlacedThisTurn,
@@ -76,9 +134,28 @@ export function GameBoard({
   onPlacedTileClick,
   isValidPlacement
 }: GameBoardProps) {
+  // Simple viewport state without complex zoom/pan functionality
+  const viewport = { scale: 1, offsetX: 0, offsetY: 0, isDragging: false }
+  const actions = {
+    handleMouseDown: () => {},
+    handleMouseMove: () => {},
+    handleMouseUp: () => {},
+    handleWheel: () => {},
+    handleTouchStart: () => {},
+    handleTouchMove: () => {},
+    handleTouchEnd: () => {},
+    resetViewport: () => {},
+    setScale: () => {},
+    centerOn: () => {}
+  }
+  const getVisibleTileRange = () => ({ startX: 0, endX: 14, startY: 0, endY: 14, centerX: 7, centerY: 7 })
+  const getTransformStyle = () => ({ transform: 'none' })
+  const isZoomedIn = false
+  const isZoomedOut = false
+
   const [stitchTrigger, setStitchTrigger] = useState(0)
   const [lastStitchedPosition, setLastStitchedPosition] = useState({ x: 0, y: 0 })
-  
+
   // Track when new patches are sewn in
   useEffect(() => {
     if (tilesPlacedThisTurn.length > 0) {
@@ -146,72 +223,97 @@ export function GameBoard({
     }
   }, [boardTiles, tilesPlacedThisTurn])
   
-  // Pre-calculate valid placements
+  // Get visible tile range for performance optimization
+  const visibleRange = getVisibleTileRange()
+  
+  // Pre-calculate valid placements (only for visible tiles when zoomed)
   const validPlacements = useMemo(() => {
     if (!selectedTile) return new Set<string>()
     
     const valid = new Set<string>()
     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
     
-    if (allTiles.length > 50) {
-      const checkPositions = new Set<string>()
-      allTiles.slice(-20).forEach(tile => {
-        const x = tile.location.x || 0
-        const y = tile.location.y || 0
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            if (dx === 0 && dy === 0) continue
-            const newX = x + dx
-            const newY = y + dy
-            if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
-              checkPositions.add(`${newX},${newY}`)
-            }
-          }
-        }
-      })
+    // Use visible range to limit calculations when zoomed in
+    const shouldOptimize = viewport.scale > 1.2 && allTiles.length > 20
+    
+    if (shouldOptimize) {
+      // Only check positions within visible range + buffer
+      const buffer = 2
+      const startX = Math.max(0, visibleRange.startX - buffer)
+      const endX = Math.min(14, visibleRange.endX + buffer)
+      const startY = Math.max(0, visibleRange.startY - buffer)
+      const endY = Math.min(14, visibleRange.endY + buffer)
       
-      checkPositions.forEach(pos => {
-        const [x, y] = pos.split(',').map(Number)
-        if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
-          valid.add(pos)
-        }
-      })
-    } else {
-      const checkPositions = new Set<string>()
-      
-      allTiles.forEach(tile => {
-        const x = tile.location.x || 0
-        const y = tile.location.y || 0
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            if (dx === 0 && dy === 0) continue
-            const newX = x + dx
-            const newY = y + dy
-            if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
-              checkPositions.add(`${newX},${newY}`)
-            }
-          }
-        }
-      })
-      
-      if (allTiles.length === 0) {
-        for (let x = 6; x <= 8; x++) {
-          for (let y = 6; y <= 8; y++) {
-            checkPositions.add(`${x},${y}`)
+      for (let x = startX; x <= endX; x++) {
+        for (let y = startY; y <= endY; y++) {
+          const posKey = `${x},${y}`
+          if (!occupiedPositions.has(posKey) && isValidPlacement(x, y)) {
+            valid.add(posKey)
           }
         }
       }
-      
-      checkPositions.forEach(pos => {
-        const [x, y] = pos.split(',').map(Number)
-        if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
-          valid.add(pos)
+    } else {
+      // Original logic for normal zoom levels
+      if (allTiles.length > 50) {
+        const checkPositions = new Set<string>()
+        allTiles.slice(-20).forEach(tile => {
+          const x = tile.location.x || 0
+          const y = tile.location.y || 0
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              if (dx === 0 && dy === 0) continue
+              const newX = x + dx
+              const newY = y + dy
+              if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
+                checkPositions.add(`${newX},${newY}`)
+              }
+            }
+          }
+        })
+        
+        checkPositions.forEach(pos => {
+          const [x, y] = pos.split(',').map(Number)
+          if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
+            valid.add(pos)
+          }
+        })
+      } else {
+        const checkPositions = new Set<string>()
+        
+        allTiles.forEach(tile => {
+          const x = tile.location.x || 0
+          const y = tile.location.y || 0
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              if (dx === 0 && dy === 0) continue
+              const newX = x + dx
+              const newY = y + dy
+              if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
+                checkPositions.add(`${newX},${newY}`)
+              }
+            }
+          }
+        })
+        
+        if (allTiles.length === 0) {
+          for (let x = 6; x <= 8; x++) {
+            for (let y = 6; y <= 8; y++) {
+              checkPositions.add(`${x},${y}`)
+            }
+          }
         }
-      })
+        
+        checkPositions.forEach(pos => {
+          const [x, y] = pos.split(',').map(Number)
+          if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
+            valid.add(pos)
+          }
+        })
+      }
     }
     
     return valid
-  }, [selectedTile, boardTiles, tilesPlacedThisTurn, isValidPlacement, occupiedPositions])
+  }, [selectedTile, boardTiles, tilesPlacedThisTurn, isValidPlacement, occupiedPositions, viewport.scale, visibleRange])
 
   // Calculate sewing positions (same as magical positions but renamed)
   const sewingPositions = useMemo(() => {
@@ -246,13 +348,55 @@ export function GameBoard({
     return sewing
   }, [selectedTile, boardTiles, tilesPlacedThisTurn])
 
+  // Handle board cell clicks with coordinate transformation
+  const handleCellClick = (row: number, col: number, event: React.MouseEvent) => {
+    event.stopPropagation()
+    
+    const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
+    const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
+    
+    if (boardTile && isPlacedThisTurn) {
+      onPlacedTileClick(boardTile)
+    } else {
+      onBoardClick(col, row)
+    }
+  }
+
   return (
-    <div css={quiltingWorkspaceStyle}>
-      <FloatingYarnBalls />
+          <div css={quiltingWorkspaceStyle}>
+      <FloatingMysticalOrbs />
       <StitchingRipple x={lastStitchedPosition.x} y={lastStitchedPosition.y} trigger={stitchTrigger} />
       
-      <div css={quiltGridContainerStyle}>
-        <div css={quiltGridStyle}>
+      {/* Zoom Controls */}
+      <ZoomControls
+        scale={viewport.scale}
+        onZoomIn={() => actions.setScale()}
+        onZoomOut={() => actions.setScale()}
+        onReset={actions.resetViewport}
+        isZoomedIn={isZoomedIn}
+        isZoomedOut={isZoomedOut}
+      />
+      
+      {/* Pan/Zoom Instructions */}
+      <div css={instructionsStyle}>
+        🖱️ Shift+drag or middle-click+drag to pan • 🎡 Ctrl+scroll to zoom • 🎯 Click controls to reset
+      </div>
+      
+      {/* Zoomable/Pannable Board Container */}
+      <div 
+        css={quiltGridContainerStyle}
+        onMouseDown={actions.handleMouseDown}
+        onMouseMove={actions.handleMouseMove}
+        onMouseUp={actions.handleMouseUp}
+        onWheel={actions.handleWheel}
+        onTouchStart={actions.handleTouchStart}
+        onTouchMove={actions.handleTouchMove}
+        onTouchEnd={actions.handleTouchEnd}
+      >
+        <div 
+          css={quiltGridStyle}
+          style={getTransformStyle()}
+        >
           {Array.from({ length: 15 }, (_, row) =>
             Array.from({ length: 15 }, (_, col) => {
               const posKey = `${col},${row}`
@@ -283,14 +427,7 @@ export function GameBoard({
                     ${isPlacedThisTurn ? newPatchGlowStyle : ''}
                     ${isPlacedThisTurn ? clickablePatchSlotStyle : ''}
                   `}
-                  onClick={(e) => {
-                    if (boardTile && isPlacedThisTurn) {
-                      onPlacedTileClick(boardTile)
-                    } else {
-                      onBoardClick(col, row)
-                    }
-                    e.stopPropagation()
-                  }}
+                  onClick={(e) => handleCellClick(row, col, e)}
                 >
                   {boardTile && (
                     <div css={patchHolderStyle}>
@@ -371,63 +508,27 @@ const simpleGlow = keyframes`
   50% { box-shadow: 0 0 20px rgba(218, 165, 32, 0.7); }
 `
 
-// Quilting workspace container
+// Simple container for the game board
 const quiltingWorkspaceStyle = css`
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: 
-    linear-gradient(135deg, 
-      #F5E6D3 0%,   /* Cream fabric */
-      #E8D5C1 25%,  /* Light tan */
-      #F0E2CE 50%,  /* Warm beige */
-      #E6D4C1 75%,  /* Soft brown */
-      #F5E6D3 100%  /* Back to cream */
-    );
-  border-radius: 15px;
-  padding: 15px;
-  overflow: auto;
-  scrollbar-gutter: stable;
+  padding: 20px;
   position: relative;
-  
-  /* Fabric texture pattern */
-  background-image: 
-    repeating-linear-gradient(45deg, 
-      rgba(139, 69, 19, 0.02) 0px, 
-      rgba(139, 69, 19, 0.02) 2px, 
-      transparent 2px, 
-      transparent 20px),
-    repeating-linear-gradient(-45deg, 
-      rgba(139, 69, 19, 0.02) 0px, 
-      rgba(139, 69, 19, 0.02) 2px, 
-      transparent 2px, 
-      transparent 20px);
-  
-  /* Cozy quilting workshop styling */
-  box-shadow: 
-    0 20px 40px rgba(139, 69, 19, 0.15),
-    0 8px 16px rgba(139, 69, 19, 0.1),
-    inset 0 2px 4px rgba(255, 255, 255, 0.3);
-  
-  border: 3px solid rgba(139, 69, 19, 0.2);
   
   @media (max-width: 768px) {
     padding: 12px;
-    border-radius: 12px;
-    border-width: 2px;
   }
   
   @media (max-width: 480px) {
     padding: 10px;
-    border-radius: 10px;
-    border-width: 2px;
   }
 `
 
-// Yarn ball container for floating ambiance
-const yarnContainerStyle = css`
+// Mystical orb container for floating ambiance
+const orbContainerStyle = css`
   position: absolute;
   top: 0;
   left: 0;
@@ -437,18 +538,20 @@ const yarnContainerStyle = css`
   z-index: 1;
 `
 
-// Individual floating yarn balls
-const floatingYarnStyle = ({ delay, duration, x, size, color }: { delay: number, duration: number, x: number, size: number, color: string }) => css`
+// Individual floating mystical orbs
+const floatingOrbStyle = ({ delay, duration, x, size, color }: { delay: number, duration: number, x: number, size: number, color: string }) => css`
   position: absolute;
   left: ${x}%;
   width: ${size}px;
   height: ${size}px;
-  background: radial-gradient(circle, ${color} 0%, rgba(255,255,255,0.3) 30%, ${color} 100%);
+  background: radial-gradient(circle, ${color} 0%, rgba(255,215,0,0.3) 30%, ${color} 100%);
   border-radius: 50%;
   animation: ${yarnFloat} ${duration}s linear infinite;
   animation-delay: ${delay}s;
   filter: blur(0.5px);
-  box-shadow: 0 2px 4px rgba(139, 69, 19, 0.2);
+  box-shadow: 
+    0 2px 4px rgba(139, 69, 19, 0.3),
+    0 0 8px rgba(255, 215, 0, 0.4);
 `
 
 // Stitching ripple effect when patches are sewn
@@ -464,53 +567,158 @@ const stitchingRippleStyle = css`
   z-index: 5;
 `
 
-// Quilt grid layout
+// Magical Quilt Loom - The actual summoning surface (zoomable/pannable)
 const quiltGridStyle = css`
   display: grid;
-  grid-template-columns: repeat(15, 1fr);
-  grid-template-rows: repeat(15, 1fr);
+  grid-template-columns: repeat(15, 70px);
+  grid-template-rows: repeat(15, 70px);
   gap: 2px;
-  width: 700px;
-  height: 700px;
+  width: 100%;
+  height: 100%;
+  min-width: 1080px;
+  min-height: 1080px;
   aspect-ratio: 1;
-  margin: auto;
   position: relative;
-  z-index: 2;
+  transform-origin: center center;
+  
+  /* Magical fabric quilt surface */
+  background: 
+    /* Woven fabric texture */
+    repeating-linear-gradient(0deg, 
+      rgba(75, 0, 130, 0.1) 0px, rgba(75, 0, 130, 0.1) 2px,
+      rgba(138, 43, 226, 0.1) 2px, rgba(138, 43, 226, 0.1) 4px,
+      transparent 4px, transparent 8px
+    ),
+    repeating-linear-gradient(90deg, 
+      rgba(255, 215, 0, 0.1) 0px, rgba(255, 215, 0, 0.1) 2px,
+      rgba(218, 165, 32, 0.1) 2px, rgba(218, 165, 32, 0.1) 4px,
+      transparent 4px, transparent 8px
+    ),
+    /* Magical shimmer patterns */
+    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.2) 0%, transparent 20%),
+    radial-gradient(circle at 75% 75%, rgba(138, 43, 226, 0.15) 0%, transparent 25%),
+    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.1) 0%, transparent 15%),
+    /* Base magical fabric color */
+    linear-gradient(135deg, 
+      #2F1B69 0%,     /* Deep mystical purple */
+      #4B0082 25%,    /* Indigo */
+      #6A5ACD 50%,    /* Slate blue center */
+      #4B0082 75%,    /* Indigo */
+      #2F1B69 100%    /* Deep mystical purple */
+    );
+  
+  background-size: 
+    12px 12px,  /* Vertical weave */
+    12px 12px,  /* Horizontal weave */
+    80px 60px,  /* Shimmer 1 */
+    100px 80px, /* Shimmer 2 */
+    60px 40px,  /* Shimmer 3 */
+    100% 100%;  /* Base gradient */
+  
+  /* Mystical yarn border - stitched edges */
+  border-radius: 12px;
+  padding: 12px;
+  
+  /* Magical stitched border */
+  box-shadow: 
+    /* Inner fabric edge */
+    inset 0 0 0 2px rgba(255, 215, 0, 0.4),
+    /* Stitching pattern */
+    inset 0 0 0 4px rgba(138, 43, 226, 0.3),
+    inset 0 0 0 6px rgba(255, 215, 0, 0.2),
+    /* Outer magical glow */
+    0 0 15px rgba(138, 43, 226, 0.4),
+    0 0 30px rgba(255, 215, 0, 0.2),
+    /* Quilt shadow */
+    0 8px 20px rgba(0, 0, 0, 0.3);
+  
+  /* Subtle magical sparkle animation */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 10%),
+      radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.1) 0%, transparent 10%),
+      radial-gradient(circle at 40% 40%, rgba(138, 43, 226, 0.1) 0%, transparent 10%);
+    background-size: 50px 50px, 70px 70px, 60px 60px;
+    animation: ${gentleFloat} 8s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
   
   @media (max-width: 768px) {
+    grid-template-columns: repeat(15, 50px);
+    grid-template-rows: repeat(15, 50px);
     gap: 1px;
-    width: 600px;
-    height: 600px;
+    min-width: 765px;
+    min-height: 765px;
+    padding: 10px;
+    box-shadow: 
+      inset 0 0 0 2px rgba(255, 215, 0, 0.4),
+      inset 0 0 0 4px rgba(138, 43, 226, 0.3),
+      0 0 10px rgba(138, 43, 226, 0.3),
+      0 6px 15px rgba(0, 0, 0, 0.3);
   }
   
   @media (max-width: 480px) {
+    grid-template-columns: repeat(15, 40px);
+    grid-template-rows: repeat(15, 40px);
     gap: 1px;
-    width: 500px;
-    height: 500px;
+    min-width: 615px;
+    min-height: 615px;
+    padding: 8px;
+    box-shadow: 
+      inset 0 0 0 2px rgba(255, 215, 0, 0.4),
+      0 0 8px rgba(138, 43, 226, 0.3),
+      0 4px 12px rgba(0, 0, 0, 0.3);
   }
 `
 
-// Individual patch slot
+// Individual fabric patch slot on the magical quilt - Where rune threads are woven
 const patchSlotStyle = css`
-  background: rgba(245, 230, 211, 0.6);
-  border: 1px solid rgba(139, 69, 19, 0.2);
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(138, 43, 226, 0.3);
+  border-radius: 6px; /* Soft fabric patch slot */
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="%23FFD700" stroke="%23654321" stroke-width="2"/><path d="M6 6 L14 14 M14 6 L6 14" stroke="%23654321" stroke-width="2" stroke-linecap="round"/></svg>') 10 10, pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   
-  /* Fabric-like texture */
+  /* Magical fabric weave texture */
   background-image: 
-    radial-gradient(circle at 25% 25%, rgba(255,255,255,0.1) 1px, transparent 1px);
-  background-size: 6px 6px;
+    /* Mystical thread patterns */
+    repeating-linear-gradient(45deg, 
+      rgba(255, 215, 0, 0.1) 0px, 
+      rgba(255, 215, 0, 0.1) 1px, 
+      transparent 1px, 
+      transparent 6px),
+    repeating-linear-gradient(-45deg, 
+      rgba(138, 43, 226, 0.08) 0px, 
+      rgba(138, 43, 226, 0.08) 1px, 
+      transparent 1px, 
+      transparent 6px);
+  background-size: 10px 10px, 10px 10px;
+  
+  /* Soft fabric slot shadow */
+  box-shadow: 
+    inset 0 1px 2px rgba(75, 0, 130, 0.2),
+    inset 0 -1px 2px rgba(255, 215, 0, 0.1),
+    0 1px 2px rgba(138, 43, 226, 0.1);
   
   &:hover {
-    background: rgba(245, 230, 211, 0.8);
+    background: rgba(255, 215, 0, 0.15);
+    border-color: rgba(255, 215, 0, 0.6);
     transform: scale(1.02);
-    border-color: rgba(139, 69, 19, 0.4);
+    box-shadow: 
+      0 0 12px rgba(255, 215, 0, 0.3),
+      0 0 20px rgba(138, 43, 226, 0.2),
+      inset 0 1px 3px rgba(255, 215, 0, 0.2);
   }
 `
 
@@ -522,26 +730,31 @@ const centerPinStyle = css`
   box-shadow: 0 4px 8px rgba(139, 69, 19, 0.3);
 `
 
-// Empty patch slot
+// Empty fabric patch slot - ready for magical thread weaving
 const emptySlotStyle = css`
-  background: rgba(245, 230, 211, 0.3);
-  border-color: rgba(139, 69, 19, 0.15);
+  background: rgba(75, 0, 130, 0.1);
+  border-color: rgba(138, 43, 226, 0.2);
+  
+  /* Subtle empty patch indication */
+  box-shadow: 
+    inset 0 1px 2px rgba(75, 0, 130, 0.2),
+    inset 0 -1px 2px rgba(255, 215, 0, 0.05);
 `
 
-// Sewing spot where patches can be attached
+// Summoning spot where threads can be woven
 const sewingSpotStyle = (scale: number) => css`
-  background: rgba(218, 165, 32, ${0.15 + (scale * 0.1)});
-  border: ${Math.max(2, scale * 3)}px solid rgba(218, 165, 32, ${0.4 + (scale * 0.2)});
+  background: rgba(255, 215, 0, ${0.15 + (scale * 0.1)});
+  border: ${Math.max(2, scale * 3)}px solid rgba(255, 215, 0, ${0.4 + (scale * 0.2)});
   position: relative;
   
-  /* Sewing machine ready indicator */
-  box-shadow: 0 0 ${Math.max(8, scale * 15)}px rgba(218, 165, 32, ${0.2 + (scale * 0.15)});
+  /* Mystical energy ready indicator */
+  box-shadow: 0 0 ${Math.max(8, scale * 15)}px rgba(255, 215, 0, ${0.3 + (scale * 0.2)});
   
   &:hover {
-    background: rgba(218, 165, 32, 0.25);
-    border-color: #DAA520;
+    background: rgba(255, 215, 0, 0.3);
+    border-color: #FFD700;
     transform: scale(${1.05 + (scale * 0.03)});
-    box-shadow: 0 0 20px rgba(218, 165, 32, 0.5);
+    box-shadow: 0 0 25px rgba(255, 215, 0, 0.6);
   }
 `
 
@@ -683,12 +896,117 @@ const sewingIndicatorStyle = (scale: number) => css`
   }
 `
 
-// Grid container - simplified for better performance
+// Grid container - enhanced for zoom/pan functionality
 const quiltGridContainerStyle = css`
-  width: auto;
-  height: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 1;
+  max-width: min(90vh, 90vw);
+  max-height: min(90vh, 90vw);
+  aspect-ratio: 1;
   position: relative;
+  cursor: default;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(135deg, 
+    rgba(160, 82, 45, 0.1) 0%, 
+    rgba(218, 165, 32, 0.05) 50%, 
+    rgba(139, 69, 19, 0.1) 100%);
+  
+  /* Show grab cursor when shift is held */
+  &:hover {
+    cursor: crosshair;
+  }
+  
+  /* Magical border like hemp rope */
+  border: 4px solid;
+  border-image: repeating-linear-gradient(
+    45deg,
+    rgba(139, 69, 19, 0.8) 0px,
+    rgba(139, 69, 19, 0.8) 8px,
+    rgba(218, 165, 32, 0.6) 8px,
+    rgba(218, 165, 32, 0.6) 16px
+  ) 4;
+  
+  box-shadow: 
+    0 8px 16px rgba(139, 69, 19, 0.3),
+    inset 0 2px 6px rgba(255, 215, 0, 0.2),
+    0 0 20px rgba(255, 215, 0, 0.1);
+    
+  @media (max-width: 768px) {
+    max-width: min(80vh, 95vw);
+    max-height: min(80vh, 95vw);
+    border-width: 3px;
+  }
+`
+
+// Zoom controls styles
+const zoomControlsStyle = css`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+`
+
+const zoomButtonGroupStyle = css`
+  display: flex;
+  gap: 8px;
+`
+
+const zoomButtonStyle = css`
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  color: #8B4513;
+  transition: color 0.3s;
+
+  &:hover {
+    color: #FFD700;
+  }
+`
+
+const resetButtonStyle = css`
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  color: #8B4513;
+  transition: color 0.3s;
+
+  &:hover {
+    color: #FFD700;
+  }
+`
+
+const zoomIndicatorStyle = css`
+  text-align: center;
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: bold;
+`
+
+const zoomHintStyle = css`
+  text-align: center;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #8B4513;
+`
+
+// Pan/Zoom instructions
+const instructionsStyle = css`
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 8px 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  color: #8B4513;
+  text-align: center;
 `
