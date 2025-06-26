@@ -1,6 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import type { GameConfig } from '../GameDisplay'
 import { NewAgeTile } from './NewAgeTile'
 import { NewAgePlayerPanel } from './NewAgePlayerPanel'
@@ -149,6 +149,36 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showEndGameModal, setShowEndGameModal] = useState(false)
   const [gameStartTime] = useState(Date.now())
+
+  const boardContainerRef = useRef<HTMLDivElement>(null)
+  const [boardOffset, setBoardOffset] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button === 0) {
+      setIsDragging(true)
+      setDragStart({ x: e.clientX - boardOffset.x, y: e.clientY - boardOffset.y })
+    }
+  }, [boardOffset])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isDragging) {
+      const newX = e.clientX - dragStart.x
+      const newY = e.clientY - dragStart.y
+      const clampedX = Math.max(-200, Math.min(200, newX))
+      const clampedY = Math.max(-200, Math.min(200, newY))
+      setBoardOffset({ x: clampedX, y: clampedY })
+    }
+  }, [isDragging, dragStart])
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  const resetBoardPosition = useCallback(() => {
+    setBoardOffset({ x: 0, y: 0 })
+  }, [])
 
   // Helper function to get tile numeric value
   const getTileValue = (tileId: NumberTileId): number => {
@@ -652,8 +682,12 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   }
 
   const handleTileSelect = (tile: TileItem) => {
+    console.log('🎯 TILE SELECTED:')
+    console.log('  - Tile value:', getTileValue(tile.id))
+    console.log('  - Tile uniqueId:', tile.uniqueId)
+    console.log('  - Current hand size:', handTiles.length)
+    console.log('  - Hand uniqueIds:', handTiles.map(t => t.uniqueId))
     setSelectedTile(tile)
-    setGameMessage(`Selected ${getTileValue(tile.id)} tile. Click on the board to place it.`)
   }
 
   // Find and return all tiles that remain connected to the main body after a removal
@@ -718,16 +752,51 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     
     if (!isPlacedThisTurn) return
     
-    // Calculate what would remain after removing the clicked tile
-    const newBoardTiles = boardTiles.filter(boardTile => 
-      !(boardTile.location.x === tile.location.x && boardTile.location.y === tile.location.y)
-    )
-    
+    // Remove the clicked tile from this turn's placed tiles
     const newTilesPlacedThisTurn = tilesPlacedThisTurn.filter(placedTile => 
       !(placedTile.location.x === tile.location.x && placedTile.location.y === tile.location.y)
     )
     
-    const allRemainingTiles = [...newBoardTiles, ...newTilesPlacedThisTurn]
+    // When islands are allowed, we only need to check connectivity among tiles placed this turn
+    // Previously played board tiles should remain as valid islands
+    if (gameConfig.allowIslands) {
+      // Simple case: just remove the clicked tile and keep all others
+      setTilesPlacedThisTurn(newTilesPlacedThisTurn)
+      
+      // Return the clicked tile to hand
+      const returnedTile = {
+        ...tile,
+        location: { type: 'Hand', player: currentPlayerId }
+      }
+      console.log('🏠 RETURNING TILE TO HAND (Islands mode):')
+      console.log('  - Tile value:', getTileValue(returnedTile.id))
+      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
+      console.log('  - Hand size before:', handTiles.length)
+      updateCurrentPlayerHand(prev => {
+        const newHand = [...prev, returnedTile]
+        console.log('  - Hand size after:', newHand.length)
+        console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
+        return newHand
+      })
+      
+      // Recalculate turn score
+      const finalAllTiles = [...boardTiles, ...newTilesPlacedThisTurn]
+      const turnSequences = calculateTurnSequences(finalAllTiles, newTilesPlacedThisTurn)
+      const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+      setTurnScore(newTurnScore)
+      
+      let message = `Returned ${getTileValue(tile.id)} tile to hand.`
+      if (newTilesPlacedThisTurn.length > 0) {
+        message += ` Click green tiles to return them or end turn when ready.`
+      } else {
+        message += ` End turn when ready.`
+      }
+      setGameMessage(message)
+      return
+    }
+    
+    // When islands are NOT allowed, we need to check connectivity and remove orphaned tiles
+    const allRemainingTiles = [...boardTiles, ...newTilesPlacedThisTurn]
     
     // Find all tiles that remain connected to the main body
     const connectedTiles = getConnectedTiles(allRemainingTiles)
@@ -735,8 +804,8 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       connectedTiles.map(t => `${t.location.x},${t.location.y}`)
     )
     
-    // Separate connected tiles into board tiles and this turn's tiles
-    const finalBoardTiles = newBoardTiles.filter(boardTile =>
+    // Separate connected tiles - board tiles should stay, only filter this turn's tiles
+    const finalBoardTiles = boardTiles.filter(boardTile =>
       connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
     )
     
@@ -744,8 +813,8 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
     )
     
-    // Find tiles that were removed due to being islands
-    const removedBoardTiles = newBoardTiles.filter(boardTile =>
+    // Find tiles that were removed due to being orphaned (only from this turn)
+    const removedBoardTiles = boardTiles.filter(boardTile =>
       !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
     )
     
@@ -763,13 +832,22 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       location: { type: 'Hand', player: currentPlayerId }
     }
     
-    // Return all removed tiles to hand (clicked tile + any islands)
+    // Return all removed tiles to hand (clicked tile + any orphaned tiles)
     const allRemovedTiles = [returnedTile, ...removedBoardTiles, ...removedPlacedTiles].map(t => ({
       ...t,
       location: { type: 'Hand', player: currentPlayerId }
     }))
     
-    updateCurrentPlayerHand(prev => [...prev, ...allRemovedTiles])
+    updateCurrentPlayerHand(prev => {
+      const newHand = [...prev, ...allRemovedTiles]
+      console.log('🏠 RETURNING TILE TO HAND (Non-Islands mode):')
+      console.log('  - Tile value:', getTileValue(returnedTile.id))
+      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
+      console.log('  - Hand size before:', handTiles.length)
+      console.log('  - Hand size after:', newHand.length)
+      console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
+      return newHand
+    })
     
     // Calculate new turn score
     const finalAllTiles = [...finalBoardTiles, ...finalTilesPlacedThisTurn]
@@ -782,7 +860,7 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     let message = `Returned ${getTileValue(tile.id)} tile to hand.`
     
     if (totalRemoved > 1) {
-      message += ` Also removed ${totalRemoved - 1} island tile(s) that became disconnected.`
+      message += ` Also removed ${totalRemoved - 1} orphaned tile(s) that became disconnected.`
     }
     
     if (finalTilesPlacedThisTurn.length > 0) {
@@ -795,17 +873,17 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   }
 
   const handleBoardClick = (x: number, y: number) => {
-    if (!selectedTile) {
-      setGameMessage("Please select a tile from your hand first!")
-      return
-    }
-    
-    // Check if position is occupied
+    // Check if position is occupied first - if so, don't handle board click
     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
     const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
     
     if (isOccupied) {
-      setGameMessage("🚫 Cell already occupied!")
+      // Don't show error message, just ignore the click - the tile's onClick will handle it
+      return
+    }
+    
+    if (!selectedTile) {
+      setGameMessage("Please select a tile from your hand first!")
       return
     }
 
@@ -823,10 +901,12 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     }
     
     const newTilesPlacedThisTurn = [...tilesPlacedThisTurn, newTile]
-    const newBoardTiles = [...boardTiles, newTile]
+    
+    // For calculations, combine board tiles with tiles placed this turn
+    const allTilesForCalculation = [...boardTiles, ...newTilesPlacedThisTurn]
     
     // Calculate turn score with real-time feedback
-    const turnSequences = calculateTurnSequences(newBoardTiles, newTilesPlacedThisTurn)
+    const turnSequences = calculateTurnSequences(allTilesForCalculation, newTilesPlacedThisTurn)
     const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
     
     // Generate real-time feedback message
@@ -843,7 +923,7 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       let hasInvalidSequence = false
       for (const placedTile of newTilesPlacedThisTurn) {
         if (placedTile.location.x === undefined || placedTile.location.y === undefined) continue
-        const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, newBoardTiles)
+        const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTilesForCalculation)
         for (const seq of sequences) {
           const hasNewTile = seq.tiles.some(tile => 
             newTilesPlacedThisTurn.some(placed => 
@@ -865,7 +945,7 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       }
     }
     
-    setBoardTiles(newBoardTiles)
+    // Don't update boardTiles - tiles should only be confirmed when turn ends
     setTilesPlacedThisTurn(newTilesPlacedThisTurn)
     setTurnScore(newTurnScore)
     setSelectedTile(null)
@@ -941,6 +1021,10 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     const newScores = [...scores]
     newScores[currentPlayer] += finalTurnScore
     setScores(newScores)
+
+    // Move tiles from tilesPlacedThisTurn to boardTiles (confirm the tiles)
+    const newBoardTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    setBoardTiles(newBoardTiles)
 
     // EXACT COPY FROM WORKING FIVESGAMEBOARD.TSX:
     // Draw new tiles to maintain exactly 5 tiles in hand (BEFORE state updates)
@@ -1163,7 +1247,7 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   }
 
   const generateAchievements = () => {
-    const achievements = []
+    const achievements: string[] = []
     const playerScore = scores[0] || 0
     const tilesPlaced = boardTiles.length - 1
     const tilesRemaining = (playerDrawPiles[0]?.length || 0) + (playerHands[0]?.length || 0)
@@ -1224,37 +1308,55 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
 
         {/* Game Board */}
         <div css={boardAreaStyle}>
-          <div css={boardContainerStyle}>
-            <div css={gameboardStyle}>
-              {Array.from({ length: 15 }, (_, rowIndex) => 
-                Array.from({ length: 15 }, (_, colIndex) => {
-                  const tile = [...boardTiles, ...tilesPlacedThisTurn]
-                    .find(t => t.location.x === colIndex && t.location.y === rowIndex)
-                  
-                  return (
-                    <div
-                      key={`${rowIndex}-${colIndex}`}
-                      css={boardSpaceStyle}
-                      onClick={() => handleBoardClick(colIndex, rowIndex)}
-                    >
-                      {tile ? (
-                        <NewAgeTile
-                          value={getTileValue(tile.id)}
-                          state={
-                            tilesPlacedThisTurn.some(placedTile => 
-                              placedTile.location.x === colIndex && placedTile.location.y === rowIndex
-                            ) ? "unplayed" : "played"
-                          }
-                          isSelected={false}
-                          onClick={() => handlePlacedTileClick(tile)}
-                        />
-                      ) : (
-                        <div css={emptySpaceStyle} />
-                      )}
-                    </div>
-                  )
-                })
-              ).flat()}
+          <div css={boardContainerStyle} ref={boardContainerRef}>
+            <button 
+              css={resetButtonStyle}
+              onClick={resetBoardPosition}
+              title="Reset board position"
+            >
+              🔄
+            </button>
+            <div 
+              css={draggableBoardContainerStyle}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+            >
+              <div 
+                css={gameboardStyle}
+                style={{ transform: `translate(${boardOffset.x}px, ${boardOffset.y}px)` }}
+              >
+                {Array.from({ length: 15 }, (_, rowIndex) => 
+                  Array.from({ length: 15 }, (_, colIndex) => {
+                    const tile = [...boardTiles, ...tilesPlacedThisTurn]
+                      .find(t => t.location.x === colIndex && t.location.y === rowIndex)
+                    
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        css={boardSpaceStyle}
+                        onClick={() => handleBoardClick(colIndex, rowIndex)}
+                      >
+                        {tile ? (
+                          <NewAgeTile
+                            value={getTileValue(tile.id)}
+                            state={
+                              tilesPlacedThisTurn.some(placedTile => 
+                                placedTile.location.x === colIndex && placedTile.location.y === rowIndex
+                              ) ? "unplayed" : "played"
+                            }
+                            isSelected={false}
+                            onClick={() => handlePlacedTileClick(tile)}
+                          />
+                        ) : (
+                          <div css={emptySpaceStyle} />
+                        )}
+                      </div>
+                    )
+                  })
+                ).flat()}
+              </div>
             </div>
           </div>
         </div>
@@ -1282,9 +1384,9 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
             </div>
           </div>
           <div css={handContainerStyle}>
-            {handTiles.map((tile, index) => (
+            {handTiles.map((tile) => (
               <NewAgeTile
-                key={`${tile.id}-${index}`}
+                key={tile.uniqueId}
                 value={getTileValue(tile.id)}
                 state="unplayed"
                 isSelected={selectedTile?.uniqueId === tile.uniqueId}
@@ -1457,11 +1559,13 @@ const gameboardStyle = css`
   grid-template-columns: repeat(15, 40px);
   grid-template-rows: repeat(15, 40px);
   gap: 2px;
-  padding: 20px;
+  padding: 5px;
   background: rgba(139, 69, 19, 0.1);
   border: 2px solid rgba(255, 215, 0, 0.3);
   border-radius: 12px;
   backdrop-filter: blur(5px);
+  width: fit-content;
+  height: fit-content;
 `
 
 const boardSpaceStyle = css`
@@ -1471,6 +1575,11 @@ const boardSpaceStyle = css`
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  background: rgba(255, 215, 0, 0.1);
+
+  &:hover {
+    background: rgba(255, 215, 0, 0.2);
+  }
 `
 
 const emptySpaceStyle = css`
@@ -1747,4 +1856,40 @@ const miniWinnerScoreStyle = css`
   background: rgba(255, 215, 0, 0.2);
   border-radius: 4px;
   padding: 4px;
+`
+
+const draggableBoardContainerStyle = css`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  cursor: grab;
+`
+
+const resetButtonStyle = css`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  font-size: 16px;
+  z-index: 1000;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 1);
+    transform: scale(1.1);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
 `

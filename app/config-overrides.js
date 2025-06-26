@@ -37,6 +37,27 @@ module.exports = (config, env) => {
         }
       });
 
+      // Add webpack fallbacks for problematic imports
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        "crypto": false,
+        "stream": false,
+        "http": false,
+        "https": false,
+        "zlib": false,
+        "url": false
+      };
+
+      // Create mock modules for problematic imports
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "openapi-fetch": require.resolve('./src/mocks/openapi-fetch-mock.js'),
+        "@react-native-async-storage/async-storage": require.resolve('./src/mocks/async-storage-mock.js'),
+        // Fix jsx-runtime resolution for Dynamic Labs in development
+        "react/jsx-runtime": require.resolve('react/jsx-runtime'),
+        "react/jsx-dev-runtime": require.resolve('react/jsx-dev-runtime')
+      };
+
       return config;
     }
   )(config, env)

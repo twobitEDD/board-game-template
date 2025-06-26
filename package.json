@@ -18,7 +18,10 @@
     "typescript-eslint": "^8.26.1"
   },
   "resolutions": {
-    "@types/react": "^17"
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6"
   },
   "scripts": {
     "linkall": "yarn link react @types/react react-dom react-redux @dnd-kit/core @emotion/react react-i18next @gamepark/rules-api @gamepark/react-client @gamepark/react-game",
@@ -30,7 +33,12 @@
     "deploy": "yarn workspace @gamepark/fives-app run deploy",
     "cwebp-osx": "rm -f ./node_modules/cwebp-bin/vendor/cwebp && ln -s /opt/homebrew/bin/cwebp ./node_modules/cwebp-bin/vendor/cwebp",
     "publish": "lerna publish",
-    "lint": "yarn workspace @gamepark/fives run lint && yarn workspace @gamepark/fives-app run lint"
+    "lint": "yarn workspace @gamepark/fives run lint && yarn workspace @gamepark/fives-app run lint",
+    "contracts:compile": "cd contracts && npm run compile",
+    "contracts:test": "cd contracts && npm test",
+    "contracts:deploy": "cd contracts && npm run deploy:local",
+    "contracts:demo": "cd contracts && npx hardhat run scripts/simple-demo.js",
+    "contracts:node": "cd contracts && npm run node"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

@@ -2,6 +2,7 @@
 import { css } from '@emotion/react'
 import type { GameConfig } from '../GameDisplay'
 import type { GameState } from './NewAgeGameBoard'
+import { DynamicConnectButton } from './DynamicConnectButton'
 
 interface NewAgeGameHeaderProps {
   gameConfig: GameConfig
@@ -24,7 +25,7 @@ export function NewAgeGameHeader({
         <button css={backButtonStyle} onClick={onBackToSetup} title="Back to Setup">
           ↩
         </button>
-        <h1 css={titleStyle}>SUMMONING LOOMS</h1>
+        <h1 css={titleStyle}>SUMMON FIVES</h1>
         <div css={gameModeStyle}>
           Classic Weaving
         </div>
@@ -57,6 +58,7 @@ export function NewAgeGameHeader({
       </div>
 
       <div css={headerRightStyle}>
+        <DynamicConnectButton />
         <a href="/new-age" css={linkStyle} title="New Age Testing">
           🔮
         </a>

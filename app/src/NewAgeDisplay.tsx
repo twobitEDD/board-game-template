@@ -1,11 +1,14 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
 import { useState } from 'react'
+import { UserProfile } from './components/UserProfile'
+import { BlockchainGamesPanel } from './components/BlockchainGamesPanel'
 
 export function NewAgeDisplay() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedTile, setSelectedTile] = useState<number | null>(null)
   const [gameMessage, setGameMessage] = useState("Select a tile from your hand, then click an empty space!")
+  const [showUserProfile, setShowUserProfile] = useState(false)
   const [notifications] = useState([
     { id: 1, type: 'turn', message: 'Your turn has begun', time: '2s ago' },
     { id: 2, type: 'score', message: 'You scored 15 points!', time: '1m ago' },
@@ -18,7 +21,15 @@ export function NewAgeDisplay() {
         <div css={mainAreaStyle}>
           {/* Header info integrated into main area */}
           <div css={topSectionStyle}>
-            <h1 css={titleStyle}>SUMMONING LOOMS</h1>
+            <div css={headerRowStyle}>
+              <h1 css={titleStyle}>SUMMON FIVES</h1>
+              <button 
+                css={profileButtonStyle}
+                onClick={() => setShowUserProfile(true)}
+              >
+                👤 Profile
+              </button>
+            </div>
             <div css={gameInfoStyle}>Turn 1 • 50 Threads</div>
             <div css={gameMessageStyle}>{gameMessage}</div>
             <div css={modeInfoStyle}>
@@ -183,6 +194,11 @@ export function NewAgeDisplay() {
           </div>
         </div>
         
+        {/* Blockchain Games Panel - Right Sidebar */}
+        <div css={blockchainSidebarStyle}>
+          <BlockchainGamesPanel />
+        </div>
+
         {/* Magic States Demo Section */}
         <div css={demoSectionStyle}>
           <div css={demoHeaderStyle}>MAGICAL STATES DEMO</div>
@@ -290,6 +306,19 @@ export function NewAgeDisplay() {
           </div>
         </div>
       </div>
+      
+      {/* User Profile Modal */}
+      {showUserProfile && (
+        <UserProfile 
+          onClose={() => setShowUserProfile(false)}
+          onLoadGame={(savedGame) => {
+            // TODO: Implement game loading
+            console.log('Loading game:', savedGame)
+            setShowUserProfile(false)
+            setGameMessage(`Loading saved game from ${new Date(savedGame.savedAt).toLocaleDateString()}...`)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1012,4 +1041,57 @@ const demoLabelStyle = css`
   text-align: center;
   line-height: 1.2;
   font-weight: bold;
+`
+
+const headerRowStyle = css`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+`
+
+const profileButtonStyle = css`
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  color: #ffd700;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: bold;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
+  
+  &:hover {
+    background: rgba(255, 215, 0, 0.2);
+    transform: translateY(-2px);
+  }
+`
+
+const blockchainSidebarStyle = css`
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 350px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  
+  @media (max-width: 1400px) {
+    width: 300px;
+  }
+  
+  @media (max-width: 1200px) {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    max-width: 500px;
+    margin: 20px auto;
+  }
 `

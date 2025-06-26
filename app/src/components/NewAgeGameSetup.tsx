@@ -2,10 +2,22 @@
 import { css } from '@emotion/react'
 import { useState } from 'react'
 import type { GameConfig } from '../GameDisplay'
+import { DynamicConnectButton } from './DynamicConnectButton'
+import { BlockchainGamesPanel } from './BlockchainGamesPanel'
+import { useBlockchainGame } from '../hooks/useBlockchainGame'
 
 interface NewAgeGameSetupProps {
-  onStartGame: (config: GameConfig) => void
+  onStartGame: (config: GameConfig, blockchainGameId?: number) => void
 }
+
+// Add wrapper style for proper horizontal scrolling
+const wrapperStyle = css`
+  width: 100vw;
+  height: 100vh;
+  overflow-x: auto;
+  overflow-y: auto;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
+`
 
 // Removed game mode variants - Fives has one core ruleset
 
@@ -13,6 +25,10 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
   const [playerCount, setPlayerCount] = useState(1)
   const [playerNames, setPlayerNames] = useState(['Solo Weaver'])
   const [allowIslands, setAllowIslands] = useState(false)
+  const [gameMode, setGameMode] = useState<'local' | 'blockchain'>('local')
+  const [isCreatingBlockchainGame, setIsCreatingBlockchainGame] = useState(false)
+  
+  const { isConnected, createGame } = useBlockchainGame()
 
   const updatePlayerCount = (count: number) => {
     setPlayerCount(count)
@@ -34,98 +50,188 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
     setPlayerNames(newNames)
   }
 
-  const handleStartGame = () => {
-    // Proper tile allocation for competitive gameplay - like original working game
-    onStartGame({
+  const handleStartGame = async () => {
+    const gameConfig = {
       playerCount,
       playerNames,
       tilesPerPlayer: 50, // 50 tiles per player (enough for a full competitive game)
       winningScore: 99999, // No score limit - game ends when tiles are exhausted
       allowIslands
-    })
+    }
+
+    if (gameMode === 'blockchain' && isConnected) {
+      try {
+        setIsCreatingBlockchainGame(true)
+        console.log('🚀 Creating blockchain game with config:', gameConfig)
+        
+        // Create blockchain game with the host as the first player
+        const result = await createGame(playerCount, false, 100, playerNames[0])
+        console.log('✅ Blockchain game created:', result)
+        
+        // Start the game UI with blockchain game ID
+        onStartGame(gameConfig, result.gameId)
+        
+        alert(`Blockchain game created! Game ID: ${result.gameId}`)
+      } catch (error) {
+        console.error('❌ Failed to create blockchain game:', error)
+        alert(`Failed to create blockchain game: ${error.message}`)
+      } finally {
+        setIsCreatingBlockchainGame(false)
+      }
+    } else {
+      // Start local game only
+      onStartGame(gameConfig)
+    }
+  }
+
+  const handleJoinGame = (gameId: number) => {
+    console.log('🎮 Joining blockchain game from setup:', gameId)
+    
+    // Create a game config for the joined game
+    const gameConfig = {
+      playerCount: 2, // Will be updated from blockchain state
+      playerNames: ['Player 1', 'Player 2'], // Will be updated from blockchain state
+      tilesPerPlayer: 50,
+      winningScore: 99999,
+      allowIslands
+    }
+    
+    // Start the game UI with the joined game ID
+    onStartGame(gameConfig, gameId)
   }
 
   return (
-    <div css={containerStyle}>
-      <div css={setupCardStyle}>
-        {/* Header */}
-        <div css={headerStyle}>
-          <h1 css={titleStyle}>SUMMONING LOOMS</h1>
-          <p css={subtitleStyle}>Weave the threads of destiny</p>
-        </div>
-
-        {/* Player Setup */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Weavers</h3>
-          <div css={playerCountStyle}>
-            {[1, 2, 3, 4].map(count => (
-              <button
-                key={count}
-                css={[playerCountButtonStyle, playerCount === count && activeButtonStyle]}
-                onClick={() => updatePlayerCount(count)}
-              >
-                {count} {count === 1 ? 'Weaver' : 'Weavers'}
-              </button>
-            ))}
+    <div css={wrapperStyle}>
+      <div css={containerStyle}>
+        <div css={setupCardStyle}>
+          {/* Header */}
+          <div css={headerStyle}>
+            <div css={headerTopStyle}>
+              <DynamicConnectButton />
+            </div>
+            <h1 css={titleStyle}>SUMMON FIVES</h1>
+            <p css={subtitleStyle}>Weave the threads of destiny</p>
           </div>
-          
-          <div css={playerNamesStyle}>
-            {playerNames.map((name, index) => (
-              <div key={index} css={playerInputContainerStyle}>
-                <label css={playerLabelStyle}>Weaver {index + 1}</label>
-                <input
-                  css={playerInputStyle}
-                  type="text"
-                  value={name}
-                  onChange={(e) => updatePlayerName(index, e.target.value)}
-                  placeholder={`Weaver ${index + 1}`}
-                />
+
+          {/* Player Setup */}
+          <div css={sectionStyle}>
+            <h3 css={sectionTitleStyle}>Weavers</h3>
+            <div css={playerCountStyle}>
+              {[1, 2, 3, 4].map(count => (
+                <button
+                  key={count}
+                  css={[playerCountButtonStyle, playerCount === count && activeButtonStyle]}
+                  onClick={() => updatePlayerCount(count)}
+                >
+                  {count} {count === 1 ? 'Weaver' : 'Weavers'}
+                </button>
+              ))}
+            </div>
+            
+            <div css={playerNamesStyle}>
+              {playerNames.map((name, index) => (
+                <div key={index} css={playerInputContainerStyle}>
+                  <label css={playerLabelStyle}>Weaver {index + 1}</label>
+                  <input
+                    css={playerInputStyle}
+                    type="text"
+                    value={name}
+                    onChange={(e) => updatePlayerName(index, e.target.value)}
+                    placeholder={`Weaver ${index + 1}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Game Rules Info */}
+          <div css={sectionStyle}>
+            <h3 css={sectionTitleStyle}>Game Rules</h3>
+            <div css={rulesInfoStyle}>
+              <div css={ruleItemStyle}>
+                <strong>50 threads per weaver</strong> - Each player gets a substantial collection of numbered tiles for strategic gameplay
               </div>
-            ))}
+              <div css={ruleItemStyle}>
+                <strong>Mathematical placement</strong> - Tiles must follow sum/difference rules
+              </div>
+              <div css={ruleItemStyle}>
+                <strong>Spark & Fire</strong> - Some tiles can ignite and burn after placement
+              </div>
+            </div>
+            
+            {/* Island Option */}
+            <div css={optionToggleStyle}>
+              <label css={toggleLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={allowIslands}
+                  onChange={(e) => setAllowIslands(e.target.checked)}
+                  css={checkboxStyle}
+                />
+                <span css={toggleTextStyle}>
+                  <strong>Allow Islands</strong> - Permit tiles to be placed without connecting to existing groups
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Game Mode Selection */}
+          <div css={sectionStyle}>
+            <h3 css={sectionTitleStyle}>Game Mode</h3>
+            <div css={gameModeStyle}>
+              <button
+                css={[gameModeButtonStyle, gameMode === 'local' && activeButtonStyle]}
+                onClick={() => setGameMode('local')}
+              >
+                🏠 Local Game
+              </button>
+              <button
+                css={[
+                  gameModeButtonStyle, 
+                  gameMode === 'blockchain' && activeButtonStyle,
+                  !isConnected && disabledButtonStyle
+                ]}
+                onClick={() => isConnected && setGameMode('blockchain')}
+                disabled={!isConnected}
+              >
+                🔗 Blockchain Game
+              </button>
+            </div>
+            
+            {gameMode === 'blockchain' && !isConnected && (
+              <div css={warningStyle}>
+                ⚠️ Connect your wallet to create blockchain games
+              </div>
+            )}
+            
+            {gameMode === 'blockchain' && isConnected && (
+              <div css={infoStyle}>
+                ✅ Blockchain game will be created with {playerNames[0]} as host
+              </div>
+            )}
+          </div>
+
+          {/* Start Button */}
+          <button 
+            css={startButtonStyle} 
+            onClick={handleStartGame}
+            disabled={isCreatingBlockchainGame}
+          >
+            <span css={startIconStyle}>✨</span>
+            {isCreatingBlockchainGame ? 'Creating Blockchain Game...' : 
+             gameMode === 'blockchain' ? 'Create Blockchain Game' : 'Begin Weaving'}
+            <span css={startIconStyle}>✨</span>
+          </button>
+
+          {/* Footer Links */}
+          <div css={footerStyle}>
+            <a href="/new-age" css={linkStyle}>🔮 New Age Testing</a>
           </div>
         </div>
-
-        {/* Game Rules Info */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Game Rules</h3>
-          <div css={rulesInfoStyle}>
-            <div css={ruleItemStyle}>
-              <strong>50 threads per weaver</strong> - Each player gets a substantial collection of numbered tiles for strategic gameplay
-            </div>
-            <div css={ruleItemStyle}>
-              <strong>Mathematical placement</strong> - Tiles must follow sum/difference rules
-            </div>
-            <div css={ruleItemStyle}>
-              <strong>Spark & Fire</strong> - Some tiles can ignite and burn after placement
-            </div>
-          </div>
-          
-          {/* Island Option */}
-          <div css={optionToggleStyle}>
-            <label css={toggleLabelStyle}>
-              <input
-                type="checkbox"
-                checked={allowIslands}
-                onChange={(e) => setAllowIslands(e.target.checked)}
-                css={checkboxStyle}
-              />
-              <span css={toggleTextStyle}>
-                <strong>Allow Islands</strong> - Permit tiles to be placed without connecting to existing groups
-              </span>
-            </label>
-          </div>
-        </div>
-
-        {/* Start Button */}
-        <button css={startButtonStyle} onClick={handleStartGame}>
-          <span css={startIconStyle}>✨</span>
-          Begin Weaving
-          <span css={startIconStyle}>✨</span>
-        </button>
-
-        {/* Footer Links */}
-        <div css={footerStyle}>
-          <a href="/new-age" css={linkStyle}>🔮 New Age Testing</a>
+        
+        {/* Blockchain Games Panel */}
+        <div css={blockchainPanelContainerStyle}>
+          <BlockchainGamesPanel onJoinGame={handleJoinGame} />
         </div>
       </div>
     </div>
@@ -136,11 +242,19 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
 const containerStyle = css`
   display: flex;
   align-items: flex-start;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 100vh;
+  min-width: max-content;
   padding: 20px;
-  overflow-y: auto;
-  width: 100%;
+  gap: 20px;
+  width: max-content;
+  
+  @media (max-width: 1200px) {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    min-width: auto;
+  }
 `
 
 const setupCardStyle = css`
@@ -149,17 +263,20 @@ const setupCardStyle = css`
   border-radius: 16px;
   padding: 30px;
   max-width: 600px;
+  min-width: 500px;
   width: 100%;
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   margin: 20px 0;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
+  flex-shrink: 0;
   
   @media (max-width: 768px) {
     padding: 20px;
     margin: 10px;
     max-width: calc(100vw - 20px);
+    min-width: auto;
     border-radius: 12px;
   }
 `
@@ -167,6 +284,14 @@ const setupCardStyle = css`
 const headerStyle = css`
   text-align: center;
   margin-bottom: 30px;
+  position: relative;
+`
+
+const headerTopStyle = css`
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
 `
 
 const titleStyle = css`
@@ -343,4 +468,57 @@ const toggleTextStyle = css`
   strong {
     color: #FFD700;
   }
+`
+
+const blockchainPanelContainerStyle = css`
+  max-width: 600px;
+  min-width: 500px;
+  width: 100%;
+  flex-shrink: 0;
+  
+  @media (max-width: 1200px) {
+    margin-left: 0;
+    margin-top: 20px;
+    min-width: auto;
+  }
+`
+
+const gameModeStyle = css`
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+`
+
+const gameModeButtonStyle = css`
+  background: rgba(255, 215, 0, 0.1);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+  border-radius: 8px;
+  padding: 12px 20px;
+  color: #F5DEB3;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+`
+
+const disabledButtonStyle = css`
+  background: rgba(255, 215, 0, 0.1);
+  border-color: rgba(255, 215, 0, 0.2);
+  color: rgba(255, 215, 0, 0.5);
+  cursor: not-allowed;
+`
+
+const warningStyle = css`
+  color: #FFD700;
+  font-size: 0.9rem;
+  margin-top: 12px;
+  text-align: center;
+`
+
+const infoStyle = css`
+  color: #FFD700;
+  font-size: 0.9rem;
+  margin-top: 12px;
+  text-align: center;
 ` 

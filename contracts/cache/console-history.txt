@@ -1,0 +1,12 @@
+cd ../app && npm run build
+q
+cd app && npm run build
+q
+cd /Users/se.csn/Documents/DEV/github.com/twobitedd/board-game-template/contracts
+q
+npx hardhat run test-contract.js --network localhost
+q
+node test-contract.js
+q
+cd contracts && node test-contract.js
+q
