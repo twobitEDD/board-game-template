@@ -311,8 +311,7 @@ export function BlockchainGameBoard({
         const poolStatus = await getTilePoolStatus(blockchainGameId)
         setTilePoolStatus(poolStatus.remainingCounts)
         
-        // Load placed tiles from board
-        await loadBoardTiles()
+        // Load placed tiles from board - will happen in a separate effect after game data loads
         
         setError(null)
         setIsInitialLoad(false) // Set this to false after first successful load
@@ -327,11 +326,19 @@ export function BlockchainGameBoard({
       }
     }
     
-    if (blockchainGameId) {
-      // Only load once on mount - no automatic polling
+    if (blockchainGameId && !loading) {
+      // Only load if we have a game ID and we're not already loading
       loadGameData()
     }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus])
+
+  // Load board tiles separately after game data is loaded
+  useEffect(() => {
+    if (currentGame && contractAddress && !loading && !isInitialLoad) {
+      console.log('🎯 Game data loaded, now loading board tiles...')
+      loadBoardTiles()
+    }
+  }, [currentGame, contractAddress, loading, isInitialLoad, loadBoardTiles])
 
   // Debug logging to track state changes
   useEffect(() => {
