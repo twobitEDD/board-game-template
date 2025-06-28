@@ -118,7 +118,7 @@ function App() {
   return (
     <DynamicContextProvider
       settings={{
-        environmentId: "c47818bf-7ad9-482e-8625-ea438d529538",
+        environmentId: "80ae4eec-6bf1-4268-8a7a-663fbb8aad69",
         walletConnectors: [EthereumWalletConnectors],
         appName: "Fives - Tile Weaving Game",
         appLogoUrl: "/favicon-32x32.png",
