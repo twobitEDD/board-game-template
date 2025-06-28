@@ -445,11 +445,11 @@ export function useBlockchainGame() {
       
       const transformedGame: BlockchainGame = {
         id: gameId,
-        state: gameArray[0] || 0,
+        state: Number(gameArray[0]) || 0,
         creator: gameArray[1] || '',
-        maxPlayers: gameArray[2] || 2,
-        currentPlayerIndex: gameArray[3] || 0,
-        turnNumber: gameArray[4] || 1,
+        maxPlayers: Number(gameArray[2]) || 2,
+        currentPlayerIndex: Number(gameArray[3]) || 0,
+        turnNumber: Number(gameArray[4]) || 1,
         playerAddresses: Array.isArray(gameArray[7]) ? gameArray[7] : [],
         playerScores: Array.isArray(gameArray[8]) ? gameArray[8].map((score: any) => Number(score)) : [],
         createdAt: Number(gameArray[5]) || Math.floor(Date.now() / 1000),

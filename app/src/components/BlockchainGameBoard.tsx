@@ -134,7 +134,8 @@ export function BlockchainGameBoard({
       
       // Optimize: Only check positions where tiles are likely to be placed
       // Start with center area and expand based on turn number
-      const maxRadius = Math.min(7, currentGame.turnNumber + 2) // Expand search area gradually
+      const turnNumber = Number(currentGame.turnNumber) || 1
+      const maxRadius = Math.min(7, turnNumber + 2) // Expand search area gradually
       const centerX = 7, centerY = 7
       
       const positionsToCheck: Array<{ x: number; y: number }> = []
