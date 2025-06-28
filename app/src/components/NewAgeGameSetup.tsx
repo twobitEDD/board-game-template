@@ -66,7 +66,7 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
         
         // Create blockchain game with the host as the first player
         // Use 2000 as winning score - appropriate for Quinto-style scoring (sequence sum × 10)
-        const result = await fix(playerCount, false, 5000, playerNames[0])
+        const result = await createGame(playerCount, false, 5000, playerNames[0])
         console.log('✅ Blockchain game created:', result)
         
         // Start the game UI with blockchain game ID
