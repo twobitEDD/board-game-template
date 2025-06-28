@@ -18,14 +18,30 @@ import { BlockchainEndGameModal } from './BlockchainEndGameModal'
 // Create public client for reading contract data
 const getPublicClient = (networkName: string) => {
   const networkConfigs = {
-    'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
-    'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
+    'Base Mainnet': { 
+      chain: base, 
+      rpcUrls: [
+        'https://base.llamarpc.com',     // LlamaNodes (often more reliable)
+        'https://base.meowrpc.com',      // MeowRPC (good for dApps)
+        'https://base-rpc.publicnode.com', // PublicNode
+        'https://1rpc.io/base',          // 1RPC
+        'https://mainnet.base.org'       // Official (backup due to rate limits)
+      ]
+    },
+    'Hardhat Local': { 
+      chain: hardhat, 
+      rpcUrls: ['http://127.0.0.1:8545'] 
+    }
   }
   
   const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
   return createPublicClient({
     chain: config.chain,
-    transport: http(config.rpcUrl)
+    transport: http(config.rpcUrls[0], {
+      retryCount: 3,
+      retryDelay: 1000,
+      timeout: 15000
+    })
   })
 }
 
@@ -89,16 +105,34 @@ export function BlockchainGameBoard({
         return
       }
       
-      // Create network-aware public client
+      // Create network-aware public client with fallback URLs
       const networkConfigs = {
-        'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
-        'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
+        'Base Mainnet': { 
+          chain: base, 
+          rpcUrls: [
+            'https://base.llamarpc.com',
+            'https://base.meowrpc.com',
+            'https://base-rpc.publicnode.com',
+            'https://1rpc.io/base',
+            'https://mainnet.base.org'
+          ]
+        },
+        'Hardhat Local': { 
+          chain: hardhat, 
+          rpcUrls: ['http://127.0.0.1:8545'] 
+        }
       }
       
       const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
+      
+      // Use the first available RPC
       const publicClient = createPublicClient({
         chain: config.chain,
-        transport: http(config.rpcUrl)
+        transport: http(config.rpcUrls[0], {
+          retryCount: 3,
+          retryDelay: 1000,
+          timeout: 15000
+        })
       })
       
       console.log('📍 Using contract:', contractAddress, 'on network:', networkName)
@@ -108,23 +142,44 @@ export function BlockchainGameBoard({
       
       const loadedTiles: any[] = []
       
-      // Query the contract for tiles on the 15x15 board
-      // Check each position for placed tiles
-      for (let x = 0; x < 15; x++) {
-        for (let y = 0; y < 15; y++) {
+      // Optimize: Only check positions where tiles are likely to be placed
+      // Start with center area and expand based on turn number
+      const maxRadius = Math.min(7, currentGame.turnNumber + 2) // Expand search area gradually
+      const centerX = 7, centerY = 7
+      
+      const positionsToCheck = []
+      
+      // Add center area first (most likely to have tiles)
+      for (let radius = 0; radius <= maxRadius; radius++) {
+        for (let x = Math.max(0, centerX - radius); x <= Math.min(14, centerX + radius); x++) {
+          for (let y = Math.max(0, centerY - radius); y <= Math.min(14, centerY + radius); y++) {
+            if (Math.abs(x - centerX) === radius || Math.abs(y - centerY) === radius) {
+              positionsToCheck.push({ x, y })
+            }
+          }
+        }
+      }
+      
+      console.log(`🔍 Checking ${positionsToCheck.length} positions (optimized from 225)`)
+      
+      // Batch tile checks to reduce RPC calls
+      const batchSize = 10
+      for (let i = 0; i < positionsToCheck.length; i += batchSize) {
+        const batch = positionsToCheck.slice(i, i + batchSize)
+        
+        const batchPromises = batch.map(async ({ x, y }) => {
           try {
-            // Use the contract's getTileAt function
             const tileResult = await publicClient.readContract({
               address: contractAddress,
               abi: FivesGameABI.abi,
               functionName: 'getTileAt',
               args: [blockchainGameId, x, y]
-            }) as [boolean, number, number] // [exists, number, turnPlaced]
+            }) as [boolean, number, number]
             
             const [exists, tileNumber] = tileResult
             
             if (exists) {
-              const tile = {
+              return {
                 id: getNumberTileId(tileNumber),
                 uniqueId: `blockchain-${x}-${y}-${tileNumber}`,
                 location: { type: 'board', x, y },
@@ -132,13 +187,27 @@ export function BlockchainGameBoard({
                 x,
                 y
               }
-              loadedTiles.push(tile)
-              console.log(`🎯 Found tile at (${x}, ${y}): ${tileNumber}`)
             }
-          } catch (tileError) {
-            // Position probably doesn't have a tile, continue
-            // console.debug(`No tile at (${x}, ${y})`)
+            return null
+          } catch (error) {
+            // Position probably doesn't have a tile or rate limited
+            return null
           }
+        })
+        
+        const batchResults = await Promise.allSettled(batchPromises)
+        
+        batchResults.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value) {
+            loadedTiles.push(result.value)
+            const tile = result.value
+            console.log(`🎯 Found tile at (${tile.x}, ${tile.y}): ${tile.number}`)
+          }
+        })
+        
+        // Small delay between batches to avoid overwhelming RPC
+        if (i + batchSize < positionsToCheck.length) {
+          await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
       
@@ -148,7 +217,8 @@ export function BlockchainGameBoard({
       
     } catch (error) {
       console.warn('❌ Failed to load board tiles:', error)
-      setPlacedTiles([]) // Fallback to empty state
+      // Don't clear tiles on error - keep existing state
+      // setPlacedTiles([]) 
     }
   }, [blockchainGameId, currentGame, contractAddress, networkName])
 
