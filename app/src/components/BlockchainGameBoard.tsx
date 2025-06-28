@@ -96,6 +96,9 @@ export function BlockchainGameBoard({
   const [hasShownEndGameModal, setHasShownEndGameModal] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   
+  // NEW: Track all players' scores for ranking display
+  const [allPlayersScores, setAllPlayersScores] = useState<{[address: string]: number}>({})
+  
   // Mobile responsive state
   const [isMobile, setIsMobile] = useState(false)
   
@@ -118,6 +121,69 @@ export function BlockchainGameBoard({
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => !prev)
   }, [])
+
+  // NEW: Load all players' scores for ranking display
+  const loadAllPlayersScores = useCallback(async () => {
+    if (!currentGame || !contractAddress || !currentGame.playerAddresses) return
+    
+    try {
+      console.log('🔍 Loading all players scores...')
+      const networkConfigs = {
+        'Base Mainnet': { 
+          chain: base, 
+          rpcUrls: [
+            'https://base-rpc.publicnode.com',
+            'https://1rpc.io/base',
+            'https://base.meowrpc.com',
+            'https://mainnet.base.org',
+            'https://base.blockpi.network/v1/rpc/public'
+          ]
+        },
+        'Hardhat Local': { 
+          chain: hardhat, 
+          rpcUrls: ['http://127.0.0.1:8545'] 
+        }
+      }
+      
+      const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
+      const publicClient = createPublicClient({
+        chain: config.chain,
+        transport: http(config.rpcUrls[0], {
+          retryCount: 3,
+          retryDelay: 1000,
+          timeout: 15000
+        })
+      })
+      
+      const scoresMap: {[address: string]: number} = {}
+      
+      // Load each player's score
+      for (const playerAddress of currentGame.playerAddresses) {
+        try {
+          const playerData = await publicClient.readContract({
+            address: contractAddress,
+            abi: FivesGameABI.abi,
+            functionName: 'getPlayer',
+            args: [blockchainGameId, playerAddress]
+          }) as any
+          
+          // Player data structure: [wallet, name, score, hand, hasJoined, lastMoveTime]
+          const score = Number(playerData[2] || 0)
+          scoresMap[playerAddress] = score
+          console.log(`🎯 Player ${playerAddress.slice(0, 6)}...${playerAddress.slice(-4)} score: ${score}`)
+        } catch (error) {
+          console.warn(`⚠️ Failed to load score for player ${playerAddress}:`, error)
+          scoresMap[playerAddress] = 0
+        }
+      }
+      
+      setAllPlayersScores(scoresMap)
+      console.log('✅ All players scores loaded:', scoresMap)
+      
+    } catch (error) {
+      console.warn('❌ Failed to load players scores:', error)
+    }
+  }, [currentGame, contractAddress, networkName, blockchainGameId])
 
   // Load board tiles from blockchain
   const loadBoardTiles = useCallback(async () => {
@@ -335,6 +401,9 @@ export function BlockchainGameBoard({
       // Load placed tiles from board
       await loadBoardTiles()
       
+      // NEW: Load all players' scores for ranking
+      await loadAllPlayersScores()
+      
       setError(null)
       
     } catch (error) {
@@ -343,7 +412,7 @@ export function BlockchainGameBoard({
     } finally {
       setIsSyncing(false)
     }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles, loadAllPlayersScores])
 
   // Update game message based on game state
   useEffect(() => {
@@ -787,6 +856,46 @@ export function BlockchainGameBoard({
           </div>
         </div>
 
+        {/* Player Score Ranking - NEW: Prominent display at top */}
+        {displayGame && displayGame.playerAddresses && displayGame.playerAddresses.length > 1 && (
+          <div css={scoreRankingStyle}>
+            <h3 css={rankingTitleStyle}>🏆 Player Rankings</h3>
+            <div css={rankingListStyle}>
+              {displayGame.playerAddresses
+                .map((address, index) => ({
+                  address,
+                  index,
+                  score: allPlayersScores[address] || 0, // NOW USES REAL SCORES
+                  isCurrentPlayer: index === displayGame.currentPlayerIndex,
+                  isMe: address?.toLowerCase() === primaryWallet?.address?.toLowerCase()
+                }))
+                .sort((a, b) => b.score - a.score) // Sort by score descending
+                .map((player, rank) => (
+                  <div 
+                    key={player.address}
+                    css={[
+                      rankingItemStyle,
+                      player.isCurrentPlayer && currentPlayerRankStyle,
+                      player.isMe && myPlayerRankStyle
+                    ]}
+                  >
+                    <div css={rankingPositionStyle}>#{rank + 1}</div>
+                    <div css={rankingPlayerStyle}>
+                      <div css={rankingAddressStyle}>
+                        {player.address?.slice(0, 6)}...{player.address?.slice(-4)}
+                        {player.isMe && <span css={meIndicatorStyle}> (You)</span>}
+                      </div>
+                      <div css={rankingScoreStyle}>{player.score.toLocaleString()} pts</div>
+                    </div>
+                    <div css={rankingStatusStyle}>
+                      {player.isCurrentPlayer && <span css={activePlayerIndicatorStyle}>⚡ Active</span>}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         {/* Game Message - Moved to top of play area below header */}
         {gameMessage && (
           <div css={gameMessageStyle}>
@@ -946,7 +1055,10 @@ export function BlockchainGameBoard({
 
             {/* Tile Pool Status */}
             <div css={sectionStyle}>
-              <h3 css={sectionTitleStyle}>Tile Pool ({displayGame?.tilesRemaining || 0} remaining)</h3>
+              <h3 css={sectionTitleStyle}>Tile Pool ({displayGame?.tilesRemaining || 0} of 50 total remaining)</h3>
+              <div css={tilePoolDescriptionStyle}>
+                Pool starts with 5 tiles of each number (0-9). Each player draws from shared pool.
+              </div>
               <div css={tilePoolStyle}>
                 {tilePoolStatus.map((count, number) => (
                   <div key={number} css={poolItemStyle}>
@@ -2046,25 +2158,17 @@ const examplesStyle = css`
 `
 
 const gameMessageStyle = css`
-  text-align: center;
-  padding: 12px 20px;
-  background: rgba(0, 0, 0, 0.3);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px 24px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   color: #e5e5e5;
+  text-align: center;
   font-size: 14px;
-  font-weight: 500;
-  margin-top: 16px;
-  border-radius: 6px;
+  border-radius: 0;
   
   @media (max-width: 768px) {
     padding: 10px 16px;
     font-size: 13px;
-    margin-top: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 8px 12px;
-    font-size: 12px;
   }
 `
 
@@ -2132,6 +2236,144 @@ const handTrayTileStyle = css`
     &:hover {
       transform: scale(1.05);
     }
+  }
+`
+
+// NEW: Score ranking display styles
+const scoreRankingStyle = css`
+  padding: 16px 24px;
+  background: rgba(255, 215, 0, 0.1);
+  border-bottom: 2px solid rgba(255, 215, 0, 0.3);
+  
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+  }
+`
+
+const rankingTitleStyle = css`
+  margin: 0 0 12px 0;
+  color: #FFD700;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  
+  @media (max-width: 768px) {
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+`
+
+const rankingListStyle = css`
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  
+  @media (max-width: 768px) {
+    gap: 8px;
+  }
+`
+
+const rankingItemStyle = css`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  
+  @media (max-width: 768px) {
+    padding: 6px 10px;
+    gap: 6px;
+  }
+`
+
+const currentPlayerRankStyle = css`
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+`
+
+const myPlayerRankStyle = css`
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+`
+
+const rankingPositionStyle = css`
+  font-weight: 700;
+  color: #FFD700;
+  font-size: 14px;
+  min-width: 24px;
+  
+  @media (max-width: 768px) {
+    font-size: 12px;
+    min-width: 20px;
+  }
+`
+
+const rankingPlayerStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`
+
+const rankingAddressStyle = css`
+  font-family: monospace;
+  font-size: 12px;
+  color: #e5e5e5;
+  
+  @media (max-width: 768px) {
+    font-size: 11px;
+  }
+`
+
+const meIndicatorStyle = css`
+  color: #10b981;
+  font-weight: 600;
+  font-family: sans-serif;
+`
+
+const rankingScoreStyle = css`
+  font-size: 12px;
+  color: #FFD700;
+  font-weight: 600;
+  
+  @media (max-width: 768px) {
+    font-size: 11px;
+  }
+`
+
+const rankingStatusStyle = css`
+  display: flex;
+  align-items: center;
+`
+
+const activePlayerIndicatorStyle = css`
+  font-size: 10px;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  
+  @media (max-width: 768px) {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+`
+
+const tilePoolDescriptionStyle = css`
+  font-size: 11px;
+  color: #a1a1aa;
+  margin-bottom: 8px;
+  text-align: center;
+  font-style: italic;
+  
+  @media (max-width: 768px) {
+    font-size: 10px;
+    margin-bottom: 6px;
   }
 `
 
