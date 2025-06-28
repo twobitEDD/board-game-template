@@ -21,11 +21,11 @@ const getPublicClient = (networkName: string) => {
     'Base Mainnet': { 
       chain: base, 
       rpcUrls: [
-        'https://base.llamarpc.com',     // LlamaNodes (often more reliable)
-        'https://base.meowrpc.com',      // MeowRPC (good for dApps)
-        'https://base-rpc.publicnode.com', // PublicNode
-        'https://1rpc.io/base',          // 1RPC
-        'https://mainnet.base.org'       // Official (backup due to rate limits)
+        'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
+        'https://1rpc.io/base',           // 1RPC (good CORS support)
+        'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
+        'https://mainnet.base.org',       // Official Base (backup)
+        'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
       ]
     },
     'Hardhat Local': { 
@@ -57,7 +57,7 @@ interface BlockchainTile extends TileItem {
 }
 
 // Use GamePark utilities
-const { getTileValue, getNumberTileId } = GameParkUtils
+const { getNumberTileId, getTileValue } = GameParkUtils
 
 export function BlockchainGameBoard({ 
   gameConfig, 
@@ -110,11 +110,11 @@ export function BlockchainGameBoard({
         'Base Mainnet': { 
           chain: base, 
           rpcUrls: [
-            'https://base.llamarpc.com',
-            'https://base.meowrpc.com',
-            'https://base-rpc.publicnode.com',
-            'https://1rpc.io/base',
-            'https://mainnet.base.org'
+            'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
+            'https://1rpc.io/base',           // 1RPC (good CORS support)
+            'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
+            'https://mainnet.base.org',       // Official Base (backup)
+            'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
           ]
         },
         'Hardhat Local': { 
@@ -124,16 +124,6 @@ export function BlockchainGameBoard({
       }
       
       const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
-      
-      // Use the first available RPC
-      const publicClient = createPublicClient({
-        chain: config.chain,
-        transport: http(config.rpcUrls[0], {
-          retryCount: 3,
-          retryDelay: 1000,
-          timeout: 15000
-        })
-      })
       
       console.log('📍 Using contract:', contractAddress, 'on network:', networkName)
       console.log('🔍 Game ID:', blockchainGameId)
@@ -162,13 +152,21 @@ export function BlockchainGameBoard({
       
       console.log(`🔍 Checking ${positionsToCheck.length} positions (optimized from 225)`)
       
-      // Batch tile checks to reduce RPC calls
-      const batchSize = 10
-      for (let i = 0; i < positionsToCheck.length; i += batchSize) {
-        const batch = positionsToCheck.slice(i, i + batchSize)
+      // Helper function to check tiles with RPC fallback
+      const checkTileWithFallback = async (x: number, y: number) => {
+        let lastError
         
-        const batchPromises = batch.map(async ({ x, y }) => {
+        for (let rpcIndex = 0; rpcIndex < config.rpcUrls.length; rpcIndex++) {
           try {
+            const publicClient = createPublicClient({
+              chain: config.chain,
+              transport: http(config.rpcUrls[rpcIndex], {
+                retryCount: 1,
+                retryDelay: 200,
+                timeout: 5000
+              })
+            })
+            
             const tileResult = await publicClient.readContract({
               address: contractAddress,
               abi: FivesGameABI.abi,
@@ -189,12 +187,28 @@ export function BlockchainGameBoard({
               }
             }
             return null
-          } catch (error) {
-            // Position probably doesn't have a tile or rate limited
-            return null
+            
+          } catch (error: any) {
+            lastError = error
+            if (error?.message?.includes('rate limit') || error?.message?.includes('429')) {
+              console.warn(`⚠️ RPC ${rpcIndex + 1} rate limited for tile check (${x},${y})`)
+              continue // Try next RPC
+            }
+            // For other errors, still try next RPC
+            continue
           }
-        })
+        }
         
+        // All RPCs failed for this position
+        return null
+      }
+      
+      // Batch tile checks with RPC fallback
+      const batchSize = 5 // Smaller batches to reduce load
+      for (let i = 0; i < positionsToCheck.length; i += batchSize) {
+        const batch = positionsToCheck.slice(i, i + batchSize)
+        
+        const batchPromises = batch.map(({ x, y }) => checkTileWithFallback(x, y))
         const batchResults = await Promise.allSettled(batchPromises)
         
         batchResults.forEach((result) => {
@@ -205,9 +219,9 @@ export function BlockchainGameBoard({
           }
         })
         
-        // Small delay between batches to avoid overwhelming RPC
+        // Longer delay between batches to be more gentle on RPCs
         if (i + batchSize < positionsToCheck.length) {
-          await new Promise(resolve => setTimeout(resolve, 100))
+          await new Promise(resolve => setTimeout(resolve, 300))
         }
       }
       

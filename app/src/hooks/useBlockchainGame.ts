@@ -12,11 +12,11 @@ const NETWORK_CONFIGS = {
     contractAddress: '0x80f80B22D1839F2216F7f7814398e7039Fc17546' as `0x${string}`,
     chain: base,
     rpcUrls: [
-      'https://base.llamarpc.com', // LlamaNodes (often more reliable)
-      'https://base.meowrpc.com',  // MeowRPC (good for dApps)
-      'https://base-rpc.publicnode.com', // PublicNode
-      'https://1rpc.io/base',     // 1RPC
-      'https://mainnet.base.org'  // Official (backup due to rate limits)
+      'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
+      'https://1rpc.io/base',           // 1RPC (good CORS support)
+      'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
+      'https://mainnet.base.org',       // Official Base (backup)
+      'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
     ],
     name: 'Base Mainnet'
   },
@@ -80,63 +80,71 @@ export function useBlockchainGame() {
   const createPublicClientWithFallback = useCallback(() => {
     const config = getNetworkConfig()
     
-    // Create a transport with fallback RPCs
-    const transports = config.rpcUrls.map(url => http(url, {
-      retryCount: 2,
-      retryDelay: 1000,
-      timeout: 10000
-    }))
+    // Use a different RPC each time to distribute load
+    const rpcIndex = Math.floor(Math.random() * config.rpcUrls.length)
+    const selectedRpc = config.rpcUrls[rpcIndex]
+    
+    console.log(`🌐 Using RPC ${rpcIndex + 1}/${config.rpcUrls.length}: ${selectedRpc}`)
     
     return createPublicClient({
       chain: config.chain,
-      transport: transports.length > 1 ? 
-        // Use fallback for multiple RPCs
-        transports[0] : // Primary RPC
-        transports[0]   // Single RPC
+      transport: http(selectedRpc, {
+        retryCount: 1, // Reduce retries per RPC
+        retryDelay: 500,
+        timeout: 8000
+      })
     })
   }, [getNetworkConfig])
 
-  // Retry wrapper for contract calls with exponential backoff
-  const retryContractCall = useCallback(async (operation: () => Promise<any>, maxRetries = 3) => {
+  // Enhanced contract read with manual RPC cycling
+  const readContractWithFallback = useCallback(async (args: any) => {
+    const config = getNetworkConfig()
     let lastError
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+
+    // Try each RPC in sequence until one works
+    for (let i = 0; i < config.rpcUrls.length; i++) {
       try {
-        const result = await operation()
+        console.log(`🔄 Trying RPC ${i + 1}/${config.rpcUrls.length}: ${config.rpcUrls[i]}`)
+        
+        const publicClient = createPublicClient({
+          chain: config.chain,
+          transport: http(config.rpcUrls[i], {
+            retryCount: 1,
+            retryDelay: 500,
+            timeout: 8000
+          })
+        })
+        
+        const result = await publicClient.readContract({
+          address: config.contractAddress,
+          abi: FivesGameABI.abi,
+          ...args
+        })
+        
+        console.log(`✅ RPC ${i + 1} succeeded`)
         return result
+        
       } catch (error: any) {
         lastError = error
+        console.warn(`❌ RPC ${i + 1} failed:`, error.message?.slice(0, 100))
         
-        // Check if it's a rate limit error
+        // Don't retry immediately on rate limit, try next RPC
         if (error?.message?.includes('rate limit') || error?.message?.includes('429')) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 10000) // Exponential backoff, max 10s
-          console.warn(`🔄 Rate limited, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`)
-          await new Promise(resolve => setTimeout(resolve, delay))
+          console.log(`⚠️ RPC ${i + 1} rate limited, trying next...`)
           continue
         }
         
-        // If it's not a rate limit error, don't retry
-        throw error
+        // For other errors, still try next RPC but with a small delay
+        if (i < config.rpcUrls.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
       }
     }
     
+    // If all RPCs failed, throw the last error
+    console.error('❌ All RPCs failed, throwing last error')
     throw lastError
-  }, [])
-
-  // Enhanced contract read with fallback and retry
-  const readContractWithFallback = useCallback(async (args: any) => {
-    const config = getNetworkConfig()
-    
-    return retryContractCall(async () => {
-      const publicClient = createPublicClientWithFallback()
-      
-      return publicClient.readContract({
-        address: config.contractAddress,
-        abi: FivesGameABI.abi,
-        ...args
-      })
-    })
-  }, [getNetworkConfig, createPublicClientWithFallback, retryContractCall])
+  }, [getNetworkConfig])
 
   // Update current network when wallet changes
   useEffect(() => {
@@ -431,36 +439,38 @@ export function useBlockchainGame() {
       console.log('📊 Raw game data from contract:', rawGameData)
       console.log('👤 Raw player data from contract:', rawPlayerData)
       
-      // Transform game data into proper structure
+      // Transform contract data to UI format (ensure proper typing)
+      const gameArray = rawGameData as any[]
+      const playerArray = rawPlayerData as any[]
+      
       const transformedGame: BlockchainGame = {
         id: gameId,
-        state: rawGameData[0] || 0,
-        creator: rawGameData[1] || '',
-        maxPlayers: rawGameData[2] || 2,
-        currentPlayerIndex: rawGameData[3] || 0,
-        turnNumber: Number(rawGameData[4]) || 1,
-        playerAddresses: Array.isArray(rawGameData[7]) ? rawGameData[7] : [],
-        playerScores: Array.isArray(rawGameData[8]) ? rawGameData[8].map((score: any) => Number(score)) : [],
-        createdAt: Number(rawGameData[5]) || Math.floor(Date.now() / 1000),
-        allowIslands: rawGameData[6] !== undefined ? rawGameData[6] : false,
-        tilesRemaining: Number(rawGameData[9]) || 50
+        state: gameArray[0] || 0,
+        creator: gameArray[1] || '',
+        maxPlayers: gameArray[2] || 2,
+        currentPlayerIndex: gameArray[3] || 0,
+        turnNumber: gameArray[4] || 1,
+        playerAddresses: Array.isArray(gameArray[7]) ? gameArray[7] : [],
+        playerScores: Array.isArray(gameArray[8]) ? gameArray[8].map((score: any) => Number(score)) : [],
+        createdAt: Number(gameArray[5]) || Math.floor(Date.now() / 1000),
+        allowIslands: gameArray[6] !== undefined ? gameArray[6] : false,
+        tilesRemaining: Number(gameArray[9]) || 50
       }
       
-      // Transform player data into proper structure
-      const transformedPlayer = {
-        name: rawPlayerData[0] || 'Player',
-        score: Number(rawPlayerData[1]) || 0,
-        hand: Array.isArray(rawPlayerData[2]) ? rawPlayerData[2].map((tile: any) => Number(tile)) : [],
-        hasJoined: rawPlayerData[3] !== undefined ? rawPlayerData[3] : false,
-        lastMoveTime: Number(rawPlayerData[4]) || Math.floor(Date.now() / 1000)
+      const transformedPlayerInfo: PlayerInfo = {
+        name: playerArray[0] || 'Player',
+        score: Number(playerArray[1]) || 0,
+        hand: Array.isArray(playerArray[2]) ? playerArray[2].map((tile: any) => Number(tile)) : [],
+        hasJoined: playerArray[3] !== undefined ? playerArray[3] : false,
+        lastMoveTime: Number(playerArray[4]) || Math.floor(Date.now() / 1000)
       }
       
       setCurrentGame(transformedGame)
-      setPlayerInfo(transformedPlayer)
+      setPlayerInfo(transformedPlayerInfo)
       
       console.log('✅ Game data refreshed and transformed:', { 
         transformedGame, 
-        transformedPlayer 
+        transformedPlayerInfo 
       })
     } catch (error) {
       console.warn('⚠️ Failed to refresh game data:', error)
@@ -579,7 +589,12 @@ export function useBlockchainGame() {
       })
       
       console.log('📊 Tile pool status:', tilePoolData)
-      return { remainingCounts: tilePoolData }
+      // Ensure proper type conversion from contract data
+      const remainingCounts = Array.isArray(tilePoolData) 
+        ? tilePoolData.map((count: any) => Number(count))
+        : Array(10).fill(0) // Fallback to empty pool
+        
+      return { remainingCounts }
     } catch (error) {
       console.warn('⚠️ Failed to get tile pool status:', error)
       return { remainingCounts: Array(10).fill(0) }
