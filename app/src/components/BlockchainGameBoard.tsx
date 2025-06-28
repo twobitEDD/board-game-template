@@ -74,8 +74,7 @@ export function BlockchainGameBoard({
     loading: hookLoading,
     error: hookError,
     contractAddress,
-    networkName,
-    clearGame
+    networkName
   } = useBlockchainGame()
 
   const { primaryWallet } = useDynamicContext()
@@ -99,34 +98,6 @@ export function BlockchainGameBoard({
   
   // Mobile responsive state
   const [isMobile, setIsMobile] = useState(false)
-  
-  // Clear state when game ID changes (prevents tiles from previous games showing up)
-  useEffect(() => {
-    console.log('🔄 Game ID changed, clearing local state...', { blockchainGameId })
-    
-    // Clear hook state first
-    clearGame()
-    
-    // Clear all game-related state
-    setPlacedTiles([])
-    setStagedPlacements([])
-    setSelectedTile(null)
-    setTilePoolStatus([])
-    setGameMessage('Loading blockchain game...')
-    setError(null)
-    setIsInitialLoad(true)
-    setLoading(true)
-    setIsSyncing(false)
-    setLastSeenTurnNumber(0)
-    setShowEndGameModal(false)
-    setHasShownEndGameModal(false)
-    
-    // Clear last known data to prevent showing stale info
-    setLastKnownGame(null)
-    setLastKnownPlayerInfo(null)
-    
-    console.log('✅ Local state cleared for new game')
-  }, [blockchainGameId, clearGame])
   
   // Detect mobile screen size
   useEffect(() => {
@@ -311,7 +282,8 @@ export function BlockchainGameBoard({
         const poolStatus = await getTilePoolStatus(blockchainGameId)
         setTilePoolStatus(poolStatus.remainingCounts)
         
-        // Load placed tiles from board - will happen in a separate effect after game data loads
+        // Load placed tiles from board
+        await loadBoardTiles()
         
         setError(null)
         setIsInitialLoad(false) // Set this to false after first successful load
@@ -326,19 +298,11 @@ export function BlockchainGameBoard({
       }
     }
     
-    if (blockchainGameId && !loading) {
-      // Only load if we have a game ID and we're not already loading
+    if (blockchainGameId) {
+      // Only load once on mount - no automatic polling
       loadGameData()
     }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus])
-
-  // Load board tiles separately after game data is loaded
-  useEffect(() => {
-    if (currentGame && contractAddress && !loading && !isInitialLoad) {
-      console.log('🎯 Game data loaded, now loading board tiles...')
-      loadBoardTiles()
-    }
-  }, [currentGame, contractAddress, loading, isInitialLoad, loadBoardTiles])
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
 
   // Debug logging to track state changes
   useEffect(() => {
