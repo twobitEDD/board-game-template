@@ -3,7 +3,7 @@ import { css } from '@emotion/react'
 import type { GameConfig } from '../GameDisplay'
 import type { GameState } from './NewAgeGameBoard'
 import { NewAgeTile } from './NewAgeTile'
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { NumberTileId, GameParkUtils } from '../gamepark'
 
 interface NewAgePlayerPanelProps {
   gameConfig: GameConfig

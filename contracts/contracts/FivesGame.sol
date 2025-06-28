@@ -213,7 +213,6 @@ contract FivesGame {
         }
 
         // Apply all placements
-        uint256 totalScore = 0;
         for (uint i = 0; i < placements.length; i++) {
             TilePlacement memory placement = placements[i];
             
@@ -230,10 +229,10 @@ contract FivesGame {
 
             // Remove from hand
             _removeTileFromHand(player, placement.number);
-
-            // Calculate score for this tile
-            totalScore += _calculateTileScore(gameId, placement.x, placement.y);
         }
+        
+        // Calculate Quinto-style sequence score for this entire turn
+        uint256 totalScore = _calculateSequenceScore(gameId, placements);
 
         // Update player score
         player.score += totalScore;
@@ -306,7 +305,8 @@ contract FivesGame {
         bool allowIslands,
         address[] memory playerAddresses,
         uint256[] memory playerScores,
-        uint256 tilesRemaining
+        uint256 tilesRemaining,
+        uint256 winningScore
     ) {
         Game storage game = games[gameId];
         
@@ -325,7 +325,8 @@ contract FivesGame {
             game.allowIslands,
             game.playerAddresses,
             scores,
-            game.tilePool.length
+            game.tilePool.length,
+            game.winningScore
         );
     }
     
@@ -522,90 +523,393 @@ contract FivesGame {
         }
         
         // Check position isn't being used by another placement in this turn
+        // Count how many placements use the same position
+        uint8 positionCount = 0;
         for (uint i = 0; i < allPlacements.length; i++) {
             if (allPlacements[i].x == placement.x && allPlacements[i].y == placement.y) {
-                // This is the same placement, skip
-                continue;
-            }
-            if (allPlacements[i].x == placement.x && allPlacements[i].y == placement.y) {
-                return false; // Duplicate position in this turn
+                positionCount++;
             }
         }
         
-        // First tile can be placed anywhere
-        if (game.placedTiles.length == 0 && allPlacements.length == 1) {
-            return true;
+        // If more than one placement uses the same position, it's invalid
+        if (positionCount > 1) {
+            return false;
         }
         
-        // Check if placement follows mathematical rules
-        return _checkMathematicalRules(gameId, placement, allPlacements);
-    }
-    
-    function _checkMathematicalRules(uint256 gameId, TilePlacement memory placement, TilePlacement[] memory allPlacements) internal view returns (bool) {
-        Game storage game = games[gameId];
-        
-        // Check adjacent tiles for sum/difference rules
-        int16[4] memory dx = [int16(-1), int16(1), int16(0), int16(0)];
-        int16[4] memory dy = [int16(0), int16(0), int16(-1), int16(1)];
-        
-        bool hasAdjacent = false;
-        
-        for (uint i = 0; i < 4; i++) {
-            int16 adjX = placement.x + dx[i];
-            int16 adjY = placement.y + dy[i];
-            bytes32 adjHash = keccak256(abi.encodePacked(adjX, adjY));
-            
-            uint8 adjNumber;
-            bool adjExists = false;
-            
-            // Check if adjacent tile exists on board
-            if (game.board[adjHash].isPlaced) {
-                adjNumber = game.board[adjHash].number;
-                adjExists = true;
-            } else {
-                // Check if adjacent tile is being placed in this turn
-                for (uint j = 0; j < allPlacements.length; j++) {
-                    if (allPlacements[j].x == adjX && allPlacements[j].y == adjY) {
-                        adjNumber = allPlacements[j].number;
-                        adjExists = true;
-                        break;
-                    }
+        // QUINTO STYLE RULE 1: First move must be on or adjacent to center (7,7)
+        if (game.placedTiles.length == 0) {
+            // Check if at least one tile in the turn is on or adjacent to center
+            bool hasValidFirstTile = false;
+            for (uint k = 0; k < allPlacements.length; k++) {
+                int16 dx = allPlacements[k].x - 7;
+                int16 dy = allPlacements[k].y - 7;
+                
+                // On center or orthogonally adjacent to center
+                if ((dx == 0 && dy == 0) || 
+                    (dx == 0 && (dy == 1 || dy == -1)) ||
+                    (dy == 0 && (dx == 1 || dx == -1))) {
+                    hasValidFirstTile = true;
+                    break;
                 }
             }
+            if (!hasValidFirstTile) {
+                return false;
+            }
             
-            if (adjExists) {
-                hasAdjacent = true;
-                
-                // Check if sum or difference equals 5 (using display numbers 0-9)
-                uint8 sum = placement.number + adjNumber;
-                uint8 diff = placement.number > adjNumber ? 
-                    placement.number - adjNumber : 
-                    adjNumber - placement.number;
-                
-                if (sum != 5 && diff != 5) {
-                    return false;
+            // For subsequent tiles in first turn, check turn contiguity
+            return _checkTurnContiguity(placement, allPlacements, game);
+        }
+        
+        // QUINTO STYLE RULE 2: Check adjacency to existing tiles (unless islands allowed)
+        if (!game.allowIslands) {
+            bool hasAdjacency = _checkAdjacencyToBoard(gameId, allPlacements);
+            if (!hasAdjacency) {
+                return false;
+            }
+        }
+        
+        // QUINTO STYLE RULE 3: Check turn contiguity (all tiles in same row or column)
+        if (!_checkTurnContiguity(placement, allPlacements, game)) {
+            return false;
+        }
+        
+        // QUINTO STYLE RULE 4: Check 5-tile sequence limits
+        if (!_checkSequenceLimits(gameId, placement, allPlacements)) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    function _checkTurnContiguity(TilePlacement memory placement, TilePlacement[] memory allPlacements, Game storage game) internal view returns (bool) {
+        if (allPlacements.length <= 1) {
+            return true; // Single tile is always contiguous
+        }
+        
+        // Check if all tiles are in same row OR same column
+        bool allSameRow = true;
+        bool allSameCol = true;
+        
+        for (uint i = 1; i < allPlacements.length; i++) {
+            if (allPlacements[i].y != allPlacements[0].y) {
+                allSameRow = false;
+            }
+            if (allPlacements[i].x != allPlacements[0].x) {
+                allSameCol = false;
+            }
+        }
+        
+        if (!allSameRow && !allSameCol) {
+            return false; // Must be in same row OR column
+        }
+        
+        // Check contiguity - no gaps unless filled by existing tiles
+        if (allSameRow) {
+            return _checkRowContiguity(allPlacements[0].y, allPlacements, game);
+        } else {
+            return _checkColumnContiguity(allPlacements[0].x, allPlacements, game);
+        }
+    }
+    
+    function _checkRowContiguity(int16 y, TilePlacement[] memory allPlacements, Game storage game) internal view returns (bool) {
+        // Get sorted x coordinates
+        int16[] memory xCoords = new int16[](allPlacements.length);
+        for (uint i = 0; i < allPlacements.length; i++) {
+            xCoords[i] = allPlacements[i].x;
+        }
+        
+        // Simple bubble sort for small arrays
+        for (uint i = 0; i < xCoords.length - 1; i++) {
+            for (uint j = 0; j < xCoords.length - i - 1; j++) {
+                if (xCoords[j] > xCoords[j + 1]) {
+                    int16 temp = xCoords[j];
+                    xCoords[j] = xCoords[j + 1];
+                    xCoords[j + 1] = temp;
                 }
             }
         }
         
-        return hasAdjacent || game.allowIslands;
+        // Check for gaps that aren't filled by existing tiles
+        for (uint i = 1; i < xCoords.length; i++) {
+            for (int16 x = xCoords[i-1] + 1; x < xCoords[i]; x++) {
+                bytes32 gapHash = keccak256(abi.encodePacked(x, y));
+                if (!game.board[gapHash].isPlaced) {
+                    return false; // Gap not filled by existing tile
+                }
+            }
+        }
+        
+        return true;
     }
     
-    function _calculateTileScore(uint256 gameId, int16 x, int16 y) internal view returns (uint256) {
-        Game storage game = games[gameId];
-        uint256 score = 1; // Base score per tile
+    function _checkColumnContiguity(int16 x, TilePlacement[] memory allPlacements, Game storage game) internal view returns (bool) {
+        // Get sorted y coordinates
+        int16[] memory yCoords = new int16[](allPlacements.length);
+        for (uint i = 0; i < allPlacements.length; i++) {
+            yCoords[i] = allPlacements[i].y;
+        }
         
-        // Bonus for each adjacent tile
+        // Simple bubble sort for small arrays
+        for (uint i = 0; i < yCoords.length - 1; i++) {
+            for (uint j = 0; j < yCoords.length - i - 1; j++) {
+                if (yCoords[j] > yCoords[j + 1]) {
+                    int16 temp = yCoords[j];
+                    yCoords[j] = yCoords[j + 1];
+                    yCoords[j + 1] = temp;
+                }
+            }
+        }
+        
+        // Check for gaps that aren't filled by existing tiles
+        for (uint i = 1; i < yCoords.length; i++) {
+            for (int16 y = yCoords[i-1] + 1; y < yCoords[i]; y++) {
+                bytes32 gapHash = keccak256(abi.encodePacked(x, y));
+                if (!game.board[gapHash].isPlaced) {
+                    return false; // Gap not filled by existing tile
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    function _checkAdjacencyToBoard(uint256 gameId, TilePlacement[] memory allPlacements) internal view returns (bool) {
+        Game storage game = games[gameId];
+        
+        // Check if any tile in this turn is adjacent to existing board tiles
+        for (uint i = 0; i < allPlacements.length; i++) {
+            if (_hasAdjacentBoardTile(gameId, allPlacements[i].x, allPlacements[i].y)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    function _hasAdjacentBoardTile(uint256 gameId, int16 x, int16 y) internal view returns (bool) {
+        Game storage game = games[gameId];
+        
         int16[4] memory dx = [int16(-1), int16(1), int16(0), int16(0)];
         int16[4] memory dy = [int16(0), int16(0), int16(-1), int16(1)];
         
         for (uint i = 0; i < 4; i++) {
             bytes32 adjHash = keccak256(abi.encodePacked(x + dx[i], y + dy[i]));
             if (game.board[adjHash].isPlaced) {
-                score += 2; // Adjacency bonus
+                return true;
             }
         }
         
-        return score;
+        return false;
+    }
+    
+    function _checkSequenceLimits(uint256 gameId, TilePlacement memory placement, TilePlacement[] memory allPlacements) internal view returns (bool) {
+        Game storage game = games[gameId];
+        
+        // Check horizontal sequence length
+        uint8 horizontalCount = _getSequenceLength(gameId, placement.x, placement.y, allPlacements, true);
+        if (horizontalCount > 5) {
+            return false;
+        }
+        
+        // Check vertical sequence length
+        uint8 verticalCount = _getSequenceLength(gameId, placement.x, placement.y, allPlacements, false);
+        if (verticalCount > 5) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    function _getSequenceLength(uint256 gameId, int16 x, int16 y, TilePlacement[] memory allPlacements, bool horizontal) internal view returns (uint8) {
+        Game storage game = games[gameId];
+        
+        int16 start;
+        int16 end;
+        if (horizontal) {
+            start = x;
+            end = x;
+            
+            // Find leftmost tile
+            while (start > 0 && (_hasExistingTile(gameId, start - 1, y) || _hasPlacementTile(allPlacements, start - 1, y))) {
+                start--;
+            }
+            
+            // Find rightmost tile
+            while (end < 14 && (_hasExistingTile(gameId, end + 1, y) || _hasPlacementTile(allPlacements, end + 1, y))) {
+                end++;
+            }
+        } else {
+            start = y;
+            end = y;
+            
+            // Find topmost tile
+            while (start > 0 && (_hasExistingTile(gameId, x, start - 1) || _hasPlacementTile(allPlacements, x, start - 1))) {
+                start--;
+            }
+            
+            // Find bottommost tile
+            while (end < 14 && (_hasExistingTile(gameId, x, end + 1) || _hasPlacementTile(allPlacements, x, end + 1))) {
+                end++;
+            }
+        }
+        
+        int16 length = end - start + 1;
+        return length > 0 ? uint8(uint16(length)) : 0;
+    }
+    
+    function _hasExistingTile(uint256 gameId, int16 x, int16 y) internal view returns (bool) {
+        Game storage game = games[gameId];
+        bytes32 hash = keccak256(abi.encodePacked(x, y));
+        return game.board[hash].isPlaced;
+    }
+    
+    function _hasPlacementTile(TilePlacement[] memory allPlacements, int16 x, int16 y) internal pure returns (bool) {
+        for (uint i = 0; i < allPlacements.length; i++) {
+            if (allPlacements[i].x == x && allPlacements[i].y == y) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    function _calculateTileScore(uint256 gameId, int16 x, int16 y) internal view returns (uint256) {
+        // Quinto-style scoring is sequence-based, not per-tile
+        // This function will be called for each placed tile, but we need to calculate sequences
+        // For now, return base score - sequence calculation happens in playTurn
+        return 1;
+    }
+    
+    function _calculateSequenceScore(uint256 gameId, TilePlacement[] memory placedTiles) internal view returns (uint256) {
+        uint256 totalScore = 0;
+        
+        // Track processed rows and columns to avoid double counting
+        bool[15] memory processedRows;
+        bool[15] memory processedCols;
+        
+        // For each placed tile, check if it creates or extends sequences
+        for (uint i = 0; i < placedTiles.length; i++) {
+            TilePlacement memory tile = placedTiles[i];
+            
+            // Check horizontal sequence (if row not yet processed)
+            // Use tile.y directly since coordinates are 0-14
+            if (!processedRows[uint16(tile.y)]) {
+                uint256 horizontalScore = _getSequenceScore(gameId, tile.x, tile.y, true, placedTiles);
+                if (horizontalScore > 0) {
+                    totalScore += horizontalScore;
+                    processedRows[uint16(tile.y)] = true;
+                }
+            }
+            
+            // Check vertical sequence (if column not yet processed)
+            // Use tile.x directly since coordinates are 0-14
+            if (!processedCols[uint16(tile.x)]) {
+                uint256 verticalScore = _getSequenceScore(gameId, tile.x, tile.y, false, placedTiles);
+                if (verticalScore > 0) {
+                    totalScore += verticalScore;
+                    processedCols[uint16(tile.x)] = true;
+                }
+            }
+        }
+        
+        return totalScore;
+    }
+    
+    function _getSequenceScore(uint256 gameId, int16 x, int16 y, bool horizontal, TilePlacement[] memory placedTiles) internal view returns (uint256) {
+        Game storage game = games[gameId];
+        
+        // Find sequence bounds
+        int16 start;
+        int16 end;
+        if (horizontal) {
+            start = x;
+            end = x;
+            
+            // Find leftmost tile
+            while (start > 0 && (_hasExistingTile(gameId, start - 1, y) || _hasPlacementTile(placedTiles, start - 1, y))) {
+                start--;
+            }
+            
+            // Find rightmost tile
+            while (end < 14 && (_hasExistingTile(gameId, end + 1, y) || _hasPlacementTile(placedTiles, end + 1, y))) {
+                end++;
+            }
+        } else {
+            start = y;
+            end = y;
+            
+            // Find topmost tile
+            while (start > 0 && (_hasExistingTile(gameId, x, start - 1) || _hasPlacementTile(placedTiles, x, start - 1))) {
+                start--;
+            }
+            
+            // Find bottommost tile
+            while (end < 14 && (_hasExistingTile(gameId, x, end + 1) || _hasPlacementTile(placedTiles, x, end + 1))) {
+                end++;
+            }
+        }
+        
+        int16 length = end - start + 1;
+        uint8 sequenceLength = length > 0 ? uint8(uint16(length)) : 0;
+        
+        // Only score sequences of 2+ tiles
+        if (sequenceLength < 2) {
+            return 0;
+        }
+        
+        // Check if at least one tile in sequence was placed this turn
+        bool hasNewTile = false;
+        uint256 sequenceSum = 0;
+        
+        for (int16 pos = start; pos <= end; pos++) {
+            uint8 tileNumber;
+            bool isNewTile = false;
+            
+            if (horizontal) {
+                // Check if this position has a newly placed tile
+                for (uint i = 0; i < placedTiles.length; i++) {
+                    if (placedTiles[i].x == pos && placedTiles[i].y == y) {
+                        tileNumber = placedTiles[i].number;
+                        isNewTile = true;
+                        hasNewTile = true;
+                        break;
+                    }
+                }
+                
+                // If not new, get from existing board
+                if (!isNewTile) {
+                    bytes32 hash = keccak256(abi.encodePacked(pos, y));
+                    if (game.board[hash].isPlaced) {
+                        tileNumber = game.board[hash].number;
+                    }
+                }
+            } else {
+                // Check if this position has a newly placed tile
+                for (uint i = 0; i < placedTiles.length; i++) {
+                    if (placedTiles[i].x == x && placedTiles[i].y == pos) {
+                        tileNumber = placedTiles[i].number;
+                        isNewTile = true;
+                        hasNewTile = true;
+                        break;
+                    }
+                }
+                
+                // If not new, get from existing board
+                if (!isNewTile) {
+                    bytes32 hash = keccak256(abi.encodePacked(x, pos));
+                    if (game.board[hash].isPlaced) {
+                        tileNumber = game.board[hash].number;
+                    }
+                }
+            }
+            
+            sequenceSum += tileNumber;
+        }
+        
+        // Only score if sequence contains newly placed tile and sums to multiple of 5
+        if (hasNewTile && sequenceSum % 5 == 0 && sequenceSum > 0) {
+            return sequenceSum * 10; // Quinto-style scoring: sum × 10
+        }
+        
+        return 0;
     }
 } 

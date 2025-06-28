@@ -2,7 +2,7 @@
 import { css } from '@emotion/react'
 import { useState, useCallback } from 'react'
 import { YarnTextureGenerator } from './TextureGenerator'
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { NumberTileId, GameParkUtils } from '../gamepark'
 
 interface TextureData {
   dataUrl: string

@@ -15,11 +15,20 @@
     "size": "npx hardhat size-contracts",
     "verify": "npx hardhat verify"
   },
-  "keywords": ["blockchain", "game", "ethereum", "tiles", "web3"],
+  "keywords": [
+    "blockchain",
+    "game",
+    "ethereum",
+    "tiles",
+    "web3"
+  ],
   "author": "Fives Game Team",
   "license": "MIT",
   "devDependencies": {
-    "hardhat": "^2.25.0",
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0"
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.25.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.0"
   }
 }

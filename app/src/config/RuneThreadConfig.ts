@@ -1,4 +1,4 @@
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { NumberTileId, GameParkUtils } from '../gamepark'
 
 // ====================================
 // SUMMONING LOOMS - RUNE THREAD CONFIG

@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/Users/se.csn/Documents/DEV/github.com/twobitedd/board-game-template/contracts/contracts/FivesGame.sol": {
-      "lastModificationDate": 1750912062494,
-      "contentHash": "44ffed85c66ec072d4e44976593355a4",
+      "lastModificationDate": 1751017551359,
+      "contentHash": "27fe42e14112378d3b4faf94313f410d",
       "sourceName": "contracts/FivesGame.sol",
       "solcConfig": {
         "version": "0.8.19",

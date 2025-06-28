@@ -2,37 +2,28 @@ import { useCallback, useState, useEffect } from 'react'
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core'
 import { createPublicClient, createWalletClient, http, parseEther, formatEther, custom, encodeFunctionData } from 'viem'
 import { writeContract } from 'viem/actions'
+import { base } from 'viem/chains'
 import FivesGameABI from '../contracts/FivesGame.json'
 import type { TileItem } from '../types/GameTypes'
 
-// Contract configuration for local Hardhat network
-const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as `0x${string}`
-const HARDHAT_CHAIN_CONFIG = {
-  chainId: 1337,
-  name: 'Hardhat Local',
-  rpcUrls: ['http://127.0.0.1:8545'],
+// Contract configuration for Base network
+const CONTRACT_ADDRESS = '0x80f80B22D1839F2216F7f7814398e7039Fc17546' as `0x${string}`
+const BASE_CHAIN_CONFIG = {
+  chainId: 8453,
+  name: 'Base',
+  rpcUrls: ['https://mainnet.base.org'],
   nativeCurrency: {
     name: 'Ethereum',
     symbol: 'ETH',
     decimals: 18
-  }
+  },
+  blockExplorerUrls: ['https://basescan.org']
 }
-
-// Custom hardhat chain config for viem
-const hardhatChain = {
-  id: 1337,
-  name: 'Hardhat',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['http://127.0.0.1:8545'] },
-    public: { http: ['http://127.0.0.1:8545'] }
-  }
-} as const
 
 // Create viem clients for contract interaction
 const publicClient = createPublicClient({
-  chain: hardhatChain,
-  transport: http('http://127.0.0.1:8545')
+  chain: base,
+  transport: http('https://mainnet.base.org')
 })
 
 interface BlockchainGame {
@@ -89,14 +80,14 @@ export function useBlockchainGame() {
       throw new Error('Please connect your wallet first')
     }
 
-    // Check if we're on the correct network (Hardhat local)
+    // Check if we're on the correct network (Base)
     try {
       const chainId = await primaryWallet.getNetwork()
       
-      console.log('🌐 Current chain ID:', chainId, 'Expected:', HARDHAT_CHAIN_CONFIG.chainId)
+      console.log('🌐 Current chain ID:', chainId, 'Expected:', BASE_CHAIN_CONFIG.chainId)
       
-      if (Number(chainId) !== HARDHAT_CHAIN_CONFIG.chainId) {
-        console.log('🔄 Need to switch to Hardhat network...')
+      if (Number(chainId) !== BASE_CHAIN_CONFIG.chainId) {
+        console.log('🔄 Need to switch to Base network...')
         
         // Check if the wallet supports network switching
         const supportsNetworkSwitching = primaryWallet.connector?.supportsNetworkSwitching?.() || false
@@ -105,8 +96,8 @@ export function useBlockchainGame() {
         if (supportsNetworkSwitching) {
           try {
             console.log('🔄 Attempting automatic network switch...')
-            await primaryWallet.switchNetwork(HARDHAT_CHAIN_CONFIG.chainId)
-            console.log('✅ Successfully switched to Hardhat network')
+            await primaryWallet.switchNetwork(BASE_CHAIN_CONFIG.chainId)
+            console.log('✅ Successfully switched to Base network')
             
             // Wait a moment for the network switch to complete
             await new Promise(resolve => setTimeout(resolve, 1000))
@@ -115,7 +106,7 @@ export function useBlockchainGame() {
             const newChainId = await primaryWallet.getNetwork()
             console.log('🔍 Verified new chain ID:', newChainId)
             
-            if (Number(newChainId) !== HARDHAT_CHAIN_CONFIG.chainId) {
+            if (Number(newChainId) !== BASE_CHAIN_CONFIG.chainId) {
               throw new Error(`Network switch verification failed. Still on chain ${newChainId}`)
             }
             
@@ -136,7 +127,7 @@ export function useBlockchainGame() {
           try {
             await walletClient.request({
               method: 'wallet_switchEthereumChain',
-              params: [{ chainId: `0x${HARDHAT_CHAIN_CONFIG.chainId.toString(16)}` }]
+              params: [{ chainId: `0x${BASE_CHAIN_CONFIG.chainId.toString(16)}` }]
             })
             console.log('✅ Network switched via wallet_switchEthereumChain')
             return
@@ -147,11 +138,11 @@ export function useBlockchainGame() {
             await walletClient.request({
               method: 'wallet_addEthereumChain',
               params: [{
-                chainId: `0x${HARDHAT_CHAIN_CONFIG.chainId.toString(16)}`,
-                chainName: HARDHAT_CHAIN_CONFIG.name,
-                rpcUrls: HARDHAT_CHAIN_CONFIG.rpcUrls,
-                nativeCurrency: HARDHAT_CHAIN_CONFIG.nativeCurrency,
-                blockExplorerUrls: []
+                chainId: `0x${BASE_CHAIN_CONFIG.chainId.toString(16)}`,
+                chainName: BASE_CHAIN_CONFIG.name,
+                rpcUrls: BASE_CHAIN_CONFIG.rpcUrls,
+                nativeCurrency: BASE_CHAIN_CONFIG.nativeCurrency,
+                blockExplorerUrls: BASE_CHAIN_CONFIG.blockExplorerUrls
               }]
             })
             
@@ -164,11 +155,11 @@ export function useBlockchainGame() {
         
         // If all automatic methods failed, throw an error with instructions
         throw new Error(
-          `Please manually switch your wallet to the Hardhat Local Network:\n\n` +
-          `Network Name: ${HARDHAT_CHAIN_CONFIG.name}\n` +
-          `Chain ID: ${HARDHAT_CHAIN_CONFIG.chainId}\n` +
-          `RPC URL: ${HARDHAT_CHAIN_CONFIG.rpcUrls[0]}\n` +
-          `Currency Symbol: ${HARDHAT_CHAIN_CONFIG.nativeCurrency.symbol}\n\n` +
+          `Please manually switch your wallet to the Base Network:\n\n` +
+          `Network Name: ${BASE_CHAIN_CONFIG.name}\n` +
+          `Chain ID: ${BASE_CHAIN_CONFIG.chainId}\n` +
+          `RPC URL: ${BASE_CHAIN_CONFIG.rpcUrls[0]}\n` +
+          `Currency Symbol: ${BASE_CHAIN_CONFIG.nativeCurrency.symbol}\n\n` +
           `Current network: ${chainId}`
         )
       }
@@ -179,59 +170,22 @@ export function useBlockchainGame() {
       console.warn('⚠️ Network check failed, proceeding anyway:', error)
     }
 
-    // Check wallet balance and auto-fund if needed
+    // Check wallet balance (no auto-funding on mainnet)
     try {
       const balance = await publicClient.getBalance({
         address: primaryWallet.address as `0x${string}`
       })
       
-      console.log('💰 Wallet balance:', balance.toString(), 'wei')
+      console.log('💰 Wallet balance:', formatEther(balance), 'ETH')
       
-      // If balance is 0, auto-fund the wallet
-      if (balance === 0n) {
-        console.log('💸 Wallet has no funds, auto-funding...')
-        await autoFundWallet(primaryWallet.address)
+      // Warn if balance is very low
+      if (balance < parseEther('0.001')) {
+        console.warn('⚠️ Low wallet balance detected. You may need more ETH for transactions.')
       }
     } catch (balanceError) {
       console.warn('⚠️ Could not check balance:', balanceError)
     }
   }, [primaryWallet])
-
-  // Auto-fund wallet with test ETH from pre-funded account
-  const autoFundWallet = useCallback(async (walletAddress: string) => {
-    try {
-      console.log('🏦 Auto-funding wallet:', walletAddress)
-      
-      // Use the first pre-funded Hardhat account to fund the user's wallet
-      const funderWalletClient = createWalletClient({
-        chain: hardhatChain,
-        transport: http('http://127.0.0.1:8545'),
-        account: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' // First pre-funded account
-      })
-
-      // Send 10 ETH (plenty for testing)
-      const txHash = await funderWalletClient.sendTransaction({
-        to: walletAddress as `0x${string}`,
-        value: parseEther('10') // 10 ETH
-      })
-      
-      console.log('💸 Funding transaction sent:', txHash)
-      
-      // Wait for confirmation
-      await publicClient.waitForTransactionReceipt({ hash: txHash })
-      
-      // Check new balance
-      const newBalance = await publicClient.getBalance({
-        address: walletAddress as `0x${string}`
-      })
-      
-      console.log('✅ Wallet funded! New balance:', formatEther(newBalance), 'ETH')
-      
-    } catch (fundError) {
-      console.error('❌ Auto-funding failed:', fundError)
-      throw new Error(`Auto-funding failed: ${fundError.message}. Please ask an admin to fund your wallet manually.`)
-    }
-  }, [])
 
   // Create a new game on the blockchain with new parameters
   const createGame = useCallback(async (maxPlayers: number, allowIslands: boolean, winningScore: number, playerName: string) => {
@@ -300,9 +254,9 @@ export function useBlockchainGame() {
         abi: FivesGameABI.abi,
         functionName: 'createGame',
         args: [contractMaxPlayers, contractAllowIslands, contractWinningScore, contractPlayerName],
-        chain: hardhatChain,
+        chain: base,
         account: primaryWallet.address as `0x${string}`,
-        gas: 1000000n // Set explicit gas limit to prevent estimation issues
+        gas: 1000000n // Set explicit gas limit
       })
       
       // Set a timeout for the transaction
@@ -460,7 +414,7 @@ export function useBlockchainGame() {
         abi: FivesGameABI.abi,
         functionName: 'playTurn',
         args: [gameId, placements],
-        chain: hardhatChain,
+        chain: base,
         account: primaryWallet.address as `0x${string}`
       })
 
@@ -512,7 +466,7 @@ export function useBlockchainGame() {
         abi: FivesGameABI.abi,
         functionName: 'skipTurn',
         args: [gameId],
-        chain: hardhatChain,
+        chain: base,
         account: primaryWallet.address as `0x${string}`
       })
 
@@ -713,7 +667,7 @@ export function useBlockchainGame() {
         abi: FivesGameABI.abi,
         functionName: 'joinGame',
         args: [gameId, playerName],
-        chain: hardhatChain,
+        chain: base,
         account: primaryWallet.address as `0x${string}`
       })
 
@@ -760,7 +714,6 @@ export function useBlockchainGame() {
     clearGame: () => {}, // Placeholder for compatibility
     
     // Helper functions
-    ensureConnection,
-    autoFundWallet
+    ensureConnection
   }
 } 

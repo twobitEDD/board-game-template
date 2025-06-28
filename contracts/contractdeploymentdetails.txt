@@ -1,0 +1,39 @@
+[dotenv@16.6.0] injecting env (4) from .env
+[dotenv@16.6.0] injecting env (4) from .env
+🎮 Deploying FivesGame Contract...
+
+📝 Deploying with account: 0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1
+💰 Account balance: 0.001631584207080668 ETH
+🌐 Network: base | Chain ID: 8453
+🔗 Network URL: Base Mainnet
+
+🚀 Starting deployment...
+⛽ Estimated gas for deployment: 3621408
+💨 Current gas price: 0.001537324 gwei
+💵 Estimated deployment cost: 0.000005567277432192 ETH
+⏳ Transaction sent, waiting for confirmation...
+
+✅ FivesGame deployed successfully!
+📍 Contract address: 0x80f80B22D1839F2216F7f7814398e7039Fc17546
+📊 Transaction hash: 0x06866899c2d5055e9ea33737abcd2b300e21fdb178f191ffe6468820338b24d5
+⛽ Actual gas used: 3591735
+💰 Actual cost: 0.000005527324583235 ETH
+
+🔍 Verifying contract deployment...
+🃏 Hand size: 5
+🏆 Default winning score: 100
+
+📋 DEPLOYMENT SUMMARY:
+======================
+Contract: FivesGame
+Address: 0x80f80B22D1839F2216F7f7814398e7039Fc17546
+Network: Base Mainnet
+Deployer: 0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1
+Gas used: 3591735
+Cost: 0.000005527324583235 ETH
+🔍 BaseScan: https://basescan.org/address/0x80f80B22D1839F2216F7f7814398e7039Fc17546
+
+🎉 Deployment complete! Your game contract is ready to use.
+📄 Deployment info saved to: /Users/se.csn/Documents/DEV/github.com/twobitedd/board-game-template/contracts/
+deployments/FivesGame-8453-1751020253945.json
+se.csn@Edwards-MBP contracts %

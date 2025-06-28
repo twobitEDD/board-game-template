@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react'
 import { css } from '@emotion/react'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
+import { useDynamicContext } from '@dynamic-labs/sdk-react-core'
 import { DynamicConnectButton } from './DynamicConnectButton'
 import { NetworkPicker } from './NetworkPicker'
 
@@ -30,12 +31,13 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     playerInfo, 
     loading, 
     error, 
-    isConnected, 
-    userAddress, 
-    contractAddress,
+    isConnected,
     getAllGames,
-    clearGame
+    contractAddress
   } = useBlockchainGame()
+  
+  const { primaryWallet } = useDynamicContext()
+  const userAddress = primaryWallet?.address
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [gameName, setGameName] = useState('')
@@ -141,7 +143,7 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     <div css={panelStyle}>
       <h2 css={titleStyle}>⛓️ Blockchain Games</h2>
       <div css={contractStyle}>
-        Contract: 0xe7f1...0512 (Hardhat Local)
+        Contract: 0x6101...D788 (Hardhat Local - FIXED VERSION)
       </div>
       
       {/* Debug info */}

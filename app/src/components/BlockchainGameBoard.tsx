@@ -1,11 +1,25 @@
 /** @jsxImportSource @emotion/react */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { css } from '@emotion/react'
+import { createPublicClient, http } from 'viem'
+import { hardhat as hardhatChain } from 'viem/chains'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
 import { NewAgeGameBoard } from './NewAgeGameBoard'
 import type { GameConfig } from '../GameDisplay'
 import type { TileItem } from '../types/GameTypes'
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { NumberTileId, GameParkUtils } from '../gamepark'
+import FivesGameABI from '../contracts/FivesGame.json'
+import { useDynamicContext } from '@dynamic-labs/sdk-react-core'
+import { BlockchainEndGameModal } from './BlockchainEndGameModal'
+
+// Contract configuration - FIXED VERSION with proper duplicate position validation
+const CONTRACT_ADDRESS = '0x610178dA211FEF7D417bC0e6FeD39F05609AD788' as `0x${string}`
+
+// Create public client for reading contract data
+const publicClient = createPublicClient({
+  chain: hardhatChain,
+  transport: http('http://127.0.0.1:8545')
+})
 
 interface BlockchainGameBoardProps {
   gameConfig: GameConfig
@@ -18,39 +32,8 @@ interface BlockchainTile extends TileItem {
   number: number // Display number (0-9)
 }
 
-// Local getTileValue function (consistent with rest of codebase)
-const getTileValue = (tileId: NumberTileId): number => {
-  switch (tileId) {
-    case NumberTileId.Zero: return 0
-    case NumberTileId.One: return 1
-    case NumberTileId.Two: return 2
-    case NumberTileId.Three: return 3
-    case NumberTileId.Four: return 4
-    case NumberTileId.Five: return 5
-    case NumberTileId.Six: return 6
-    case NumberTileId.Seven: return 7
-    case NumberTileId.Eight: return 8
-    case NumberTileId.Nine: return 9
-    default: return 0
-  }
-}
-
-// Convert numeric tile value to NumberTileId
-const getNumberTileId = (value: number): NumberTileId => {
-  switch (value) {
-    case 0: return NumberTileId.Zero
-    case 1: return NumberTileId.One
-    case 2: return NumberTileId.Two
-    case 3: return NumberTileId.Three
-    case 4: return NumberTileId.Four
-    case 5: return NumberTileId.Five
-    case 6: return NumberTileId.Six
-    case 7: return NumberTileId.Seven
-    case 8: return NumberTileId.Eight
-    case 9: return NumberTileId.Nine
-    default: return NumberTileId.Zero
-  }
-}
+// Use GamePark utilities
+const { getTileValue, getNumberTileId } = GameParkUtils
 
 export function BlockchainGameBoard({ 
   gameConfig, 
@@ -68,20 +51,40 @@ export function BlockchainGameBoard({
     error: hookError
   } = useBlockchainGame()
 
+  const { primaryWallet } = useDynamicContext()
+
   const [selectedTile, setSelectedTile] = useState<BlockchainTile | null>(null)
   const [gameMessage, setGameMessage] = useState('Loading blockchain game...')
   const [loading, setLoading] = useState(true)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tilePoolStatus, setTilePoolStatus] = useState<number[]>([])
   const [placedTiles, setPlacedTiles] = useState<any[]>([])
-  const [stagedPlacements, setStagedPlacements] = useState<Array<{x: number, y: number, number: number}>>([])
+  const [stagedPlacements, setStagedPlacements] = useState<Array<{x: number, y: number, number: number, tileUniqueId: string}>>([])
   const [isConfirming, setIsConfirming] = useState(false)
+  const [lastSeenTurnNumber, setLastSeenTurnNumber] = useState<number>(0)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [lastKnownGame, setLastKnownGame] = useState<any>(null)
+  const [lastKnownPlayerInfo, setLastKnownPlayerInfo] = useState<any>(null)
+  const [showEndGameModal, setShowEndGameModal] = useState(false)
+  const [hasShownEndGameModal, setHasShownEndGameModal] = useState(false)
 
   // Load initial blockchain state and set up polling
   useEffect(() => {
-    const loadGameData = async () => {
+    const loadGameData = async (isBackground = false) => {
       try {
-        setLoading(true)
+        // Only show loading spinner for initial load, not background polls
+        if (!isBackground && isInitialLoad) {
+          setLoading(true)
+        }
+        
+        // Show sync indicator for background updates
+        if (isBackground) {
+          setIsSyncing(true)
+        }
+        
+        console.log(isBackground ? '📡 Background sync...' : '🔄 Initial load...')
+        
         await refreshGameData(blockchainGameId)
         
         // Load tile pool status
@@ -92,35 +95,123 @@ export function BlockchainGameBoard({
         await loadBoardTiles()
         
         setError(null)
+        
+        // Mark initial load as complete
+        if (isInitialLoad) {
+          setIsInitialLoad(false)
+        }
+        
       } catch (error) {
-        console.error('❌ Failed to load game data:', error)
-        setError(`Error loading game: ${error.message}`)
+        console.error(isBackground ? '❌ Background sync failed:' : '❌ Failed to load game data:', error)
+        if (!isBackground) {
+          setError(`Error loading game: ${error.message}`)
+        }
+        
+        // Clear sync indicator if there's an error in background sync
+        if (isBackground) {
+          setIsSyncing(false)
+        }
       } finally {
-        setLoading(false)
+        // Only clear loading for initial load
+        if (!isBackground && loading) {
+          setLoading(false)
+        }
+        
+        // Clear sync indicator for background updates (with small delay to avoid flashing)
+        if (isBackground) {
+          setTimeout(() => setIsSyncing(false), 500)
+        }
       }
     }
     
     if (blockchainGameId) {
-      loadGameData()
+      // Initial load
+      loadGameData(false)
       
-      // Set up polling for real-time updates every 5 seconds
-      const pollInterval = setInterval(loadGameData, 5000)
+      // Set up polling for background updates every 5 seconds
+      const pollInterval = setInterval(() => loadGameData(true), 5000)
       
       return () => clearInterval(pollInterval)
     }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus])
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus, isInitialLoad, loading])
 
   // Load board tiles from blockchain
   const loadBoardTiles = useCallback(async () => {
     try {
-      // For now, we'll just track placed tiles in state
-      // In a full implementation, you'd query the contract for all placed tiles
-      // This is a simplified version for the demo
-      setPlacedTiles([])
+      console.log('🔍 Loading board tiles from blockchain...')
+      
+      if (!currentGame) {
+        console.log('⚠️ No current game, skipping tile load')
+        return
+      }
+      
+      const loadedTiles: any[] = []
+      
+      // Query the contract for tiles on the 15x15 board
+      // Check each position for placed tiles
+      for (let x = 0; x < 15; x++) {
+        for (let y = 0; y < 15; y++) {
+          try {
+            // Use the contract's getTileAt function
+            const tileResult = await publicClient.readContract({
+              address: CONTRACT_ADDRESS,
+              abi: FivesGameABI.abi,
+              functionName: 'getTileAt',
+              args: [blockchainGameId, x, y]
+            }) as [boolean, number, number] // [exists, number, turnPlaced]
+            
+            const [exists, tileNumber] = tileResult
+            
+            if (exists) {
+              const tile = {
+                id: getNumberTileId(tileNumber),
+                uniqueId: `blockchain-${x}-${y}-${tileNumber}`,
+                location: { type: 'board', x, y },
+                number: tileNumber,
+                x,
+                y
+              }
+              loadedTiles.push(tile)
+              console.log(`🎯 Found tile at (${x}, ${y}): ${tileNumber}`)
+            }
+          } catch (tileError) {
+            // Position probably doesn't have a tile, continue
+            // console.debug(`No tile at (${x}, ${y})`)
+          }
+        }
+      }
+      
+      console.log(`✅ Loaded ${loadedTiles.length} tiles from blockchain`)
+      console.log('  Loaded tiles:', loadedTiles.map(t => `(${t.x},${t.y}):${t.number}`))
+      setPlacedTiles(loadedTiles)
+      
     } catch (error) {
-      console.warn('Failed to load board tiles:', error)
+      console.warn('❌ Failed to load board tiles:', error)
+      setPlacedTiles([]) // Fallback to empty state
     }
-  }, [])
+  }, [blockchainGameId, currentGame])
+
+  // Auto-reload board tiles when game state changes or when joining a game
+  useEffect(() => {
+    if (currentGame && currentGame.state === 1) { // Game is in progress
+      console.log('🔄 Game state changed to In Progress - reloading board tiles...')
+      console.log('  Current turn number:', currentGame.turnNumber)
+      console.log('  Current player index:', currentGame.currentPlayerIndex)
+      loadBoardTiles()
+    }
+  }, [currentGame?.state, currentGame?.turnNumber, loadBoardTiles])
+
+  // Also reload board tiles when turn number changes (from polling or other updates)
+  useEffect(() => {
+    if (currentGame && currentGame.state === 1 && !loading) {
+      if (currentGame.turnNumber !== lastSeenTurnNumber) {
+        console.log('📡 Turn number changed - reloading board tiles...')
+        console.log(`  Previous turn: ${lastSeenTurnNumber}, New turn: ${currentGame.turnNumber}`)
+        setLastSeenTurnNumber(currentGame.turnNumber)
+        loadBoardTiles()
+      }
+    }
+  }, [currentGame?.turnNumber, currentGame?.state, loading, lastSeenTurnNumber, loadBoardTiles])
 
   // Update game message based on game state
   useEffect(() => {
@@ -129,71 +220,172 @@ export function BlockchainGameBoard({
     if (currentGame.state === 0) {
       setGameMessage('Game is in setup phase')
     } else if (currentGame.state === 1) {
-      const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                      currentGame.playerAddresses.find(addr => playerInfo.hasJoined)?.toLowerCase()
+      const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
+      const myWalletAddr = primaryWallet?.address
+      const isMyTurn = currentPlayerAddr?.toLowerCase() === myWalletAddr?.toLowerCase()
+      
+      console.log('🔍 TURN DETECTION DEBUG:')
+      console.log('  Current Player Index:', currentGame.currentPlayerIndex)
+      console.log('  Current Player Address:', currentPlayerAddr)
+      console.log('  My Wallet Address:', myWalletAddr)
+      console.log('  Is My Turn?:', isMyTurn)
+      console.log('  All Player Addresses:', currentGame.playerAddresses)
+      console.log('  Player 0 (First):', currentGame.playerAddresses[0])
+      console.log('  Player 1 (Second):', currentGame.playerAddresses[1])
+      console.log('  My Index in Array:', currentGame.playerAddresses.findIndex(addr => addr?.toLowerCase() === myWalletAddr?.toLowerCase()))
       
       if (isMyTurn) {
-        setGameMessage(`Your turn! Place tiles from your hand or skip to draw new tiles.`)
-          } else {
+        // Special message for first turn
+        if (placedTiles.length === 0 && stagedPlacements.length === 0) {
+          setGameMessage(`Your turn! Place the first tile anywhere on the board to start the game.`)
+        } else {
+          setGameMessage(`Your turn! Place tiles from your hand or skip to draw new tiles.`)
+        }
+      } else {
         const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
-            setGameMessage(`Waiting for ${currentPlayerAddr?.slice(0, 6)}...${currentPlayerAddr?.slice(-4)} to play`)
+        setGameMessage(`Waiting for ${currentPlayerAddr?.slice(0, 6)}...${currentPlayerAddr?.slice(-4)} to play`)
       }
     } else if (currentGame.state === 2) {
       setGameMessage('Game completed!')
+      // Show endgame modal after a brief delay (only once)
+      if (!hasShownEndGameModal) {
+        setHasShownEndGameModal(true)
+        setTimeout(() => setShowEndGameModal(true), 1500)
+      }
     } else {
       setGameMessage('Game cancelled')
     }
-  }, [currentGame, playerInfo])
+  }, [currentGame, playerInfo, placedTiles, stagedPlacements, primaryWallet])
+
+  // Validate placement (trusting the contract's comprehensive Quinto-style validation)
+  const validatePlacement = (x: number, y: number, selectedTileNumber: number) => {
+    console.log(`🔍 VALIDATION DEBUG - validatePlacement called:`)
+    console.log(`  Position: (${x}, ${y})`)
+    console.log(`  Tile Number: ${selectedTileNumber}`)
+    console.log(`  Placed Tiles Count:`, placedTiles.length)
+    console.log(`  Staged Placements Count:`, stagedPlacements.length)
+    console.log(`  Total Tiles on Board:`, placedTiles.length + stagedPlacements.length)
+    
+    // Basic bounds check
+    if (x < 0 || x >= 15 || y < 0 || y >= 15) {
+      console.log(`❌ Bounds check failed: (${x}, ${y}) outside 0-14 range`)
+      return { isValid: false, error: "Outside board boundaries" }
+    }
+
+    // Check if position is occupied  
+    const existingPlacedTile = placedTiles.find(tile => tile.x === x && tile.y === y)
+    const existingStagedTile = stagedPlacements.find(placement => placement.x === x && placement.y === y)
+    
+    if (existingPlacedTile || existingStagedTile) {
+      console.log(`❌ Position occupied:`)
+      console.log(`  Existing placed tile:`, existingPlacedTile)
+      console.log(`  Existing staged tile:`, existingStagedTile)
+      return { isValid: false, error: "Position already occupied" }
+    }
+
+    // Add helpful hints for Quinto-style rules
+    // Consider BOTH placed tiles AND staged tiles when determining first move
+    const totalTilesOnBoard = placedTiles.length + stagedPlacements.length
+    
+    if (totalTilesOnBoard === 0) {
+      // True first move - must be on or adjacent to center (7,7)
+      const distanceFromCenter = Math.abs(x - 7) + Math.abs(y - 7)
+      if (distanceFromCenter > 1) {
+        console.log(`⚠️ WARNING: First move should be on or adjacent to center (7,7). Current distance: ${distanceFromCenter}`)
+        console.log(`  Suggested positions: (7,7), (6,7), (8,7), (7,6), (7,8)`)
+        return { isValid: false, error: "First tile must be placed on or adjacent to center (7,7)" }
+      }
+    } else {
+      // Subsequent moves - have placed or staged tiles already
+      console.log(`ℹ️ Subsequent move - total tiles on board:`, totalTilesOnBoard, `(${placedTiles.length} placed + ${stagedPlacements.length} staged)`)
+      
+      // Allow broader placement - contract will validate Quinto rules
+      console.log(`✅ Allowing placement anywhere - contract will validate Quinto rules`)
+    }
+
+    console.log(`✅ Validation passed for (${x}, ${y})`)
+    return { isValid: true, error: null }
+  }
 
   // Handle tile staging (local placement, no blockchain call yet)
   const handleTileStaging = useCallback((x: number, y: number) => {
+    console.log(`🎯 TILE STAGING DEBUG - handleTileStaging called:`)
+    console.log(`  Position: (${x}, ${y})`)
+    console.log(`  Selected Tile:`, selectedTile)
+    console.log(`  Current Game:`, currentGame)
+    console.log(`  Player Info:`, playerInfo)
+    
     if (!selectedTile || !currentGame || !playerInfo) {
+      console.log(`❌ Missing required data:`)
+      console.log(`  selectedTile:`, !!selectedTile)
+      console.log(`  currentGame:`, !!currentGame)
+      console.log(`  playerInfo:`, !!playerInfo)
       setGameMessage('Please select a tile first!')
       return
     }
 
-    // Check if it's the player's turn
-    const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                    currentGame.playerAddresses.find(addr => playerInfo.hasJoined)?.toLowerCase()
+    // Check if it's the player's turn with detailed logging
+    const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
+    const myWalletAddr = primaryWallet?.address
+    
+    console.log(`🔍 TURN VALIDATION:`)
+    console.log(`  Current Player Index: ${currentGame.currentPlayerIndex}`)
+    console.log(`  Current Player Address: ${currentPlayerAddr}`)
+    console.log(`  My Wallet Address: ${myWalletAddr}`)
+    console.log(`  Player Addresses Array:`, currentGame.playerAddresses)
+    console.log(`  Player Info:`, playerInfo)
+    
+    const isMyTurn = currentPlayerAddr?.toLowerCase() === myWalletAddr?.toLowerCase()
+    console.log(`  Is My Turn? ${isMyTurn}`)
     
     if (!isMyTurn) {
+      console.log(`❌ Not my turn!`)
       setGameMessage('Not your turn!')
       return
     }
+
+    console.log(`✅ Turn validation passed - proceeding with placement validation`)
 
     // Check if position is already occupied (by confirmed tiles or staged tiles)
     const isOccupiedByPlaced = placedTiles.some(tile => tile.x === x && tile.y === y)
     const isOccupiedByStaged = stagedPlacements.some(placement => placement.x === x && placement.y === y)
     
     if (isOccupiedByPlaced || isOccupiedByStaged) {
+      console.log(`❌ Position occupied by placed (${isOccupiedByPlaced}) or staged (${isOccupiedByStaged})`)
       setGameMessage('Position already occupied!')
       return
     }
 
-    // Check if player has this tile in hand
-    const hasThisTile = playerInfo.hand.includes(selectedTile.number)
-    if (!hasThisTile) {
-      setGameMessage('You don\'t have this tile in your hand!')
-      return
-    }
-
-    // Check if tile is already used in staged placements
-    const tileAlreadyStaged = stagedPlacements.some(placement => placement.number === selectedTile.number)
+    // Check if this specific tile instance is already staged
+    const tileAlreadyStaged = stagedPlacements.some(placement => placement.tileUniqueId === selectedTile.uniqueId)
     if (tileAlreadyStaged) {
+      console.log(`❌ Tile already staged:`, selectedTile.uniqueId)
       setGameMessage('This tile is already staged for placement!')
       return
     }
 
+    // Validate mathematical placement rules
+    console.log(`🔍 Running placement validation...`)
+    const validation = validatePlacement(x, y, selectedTile.number)
+    if (!validation.isValid) {
+      console.log(`❌ Placement validation failed:`, validation.error)
+      setGameMessage(validation.error!)
+      return
+    }
+
+    console.log(`✅ All validations passed - staging tile`)
+    
     // Stage the placement
     setStagedPlacements(prev => [...prev, {
       x,
       y,
-      number: selectedTile.number
+      number: selectedTile.number,
+      tileUniqueId: selectedTile.uniqueId
     }])
     
     setSelectedTile(null)
     setGameMessage(`Tile ${selectedTile.number} staged at (${x}, ${y}). Add more tiles or confirm your turn.`)
-  }, [selectedTile, currentGame, playerInfo, placedTiles, stagedPlacements])
+  }, [selectedTile, currentGame, playerInfo, placedTiles, stagedPlacements, validatePlacement])
 
   // Confirm turn - send all staged placements to blockchain
   const handleConfirmTurn = useCallback(async () => {
@@ -204,7 +396,7 @@ export function BlockchainGameBoard({
 
     // Check if it's the player's turn
     const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                    currentGame.playerAddresses.find(addr => playerInfo.hasJoined)?.toLowerCase()
+                    primaryWallet?.address?.toLowerCase()
     
     if (!isMyTurn) {
       setGameMessage('Not your turn!')
@@ -216,26 +408,46 @@ export function BlockchainGameBoard({
       setGameMessage(`Confirming turn with ${stagedPlacements.length} tile(s)...`)
       
       // Send all staged placements to blockchain in one transaction
-      const txHash = await playTurn(blockchainGameId, stagedPlacements)
+      const placements = stagedPlacements.map(({ x, y, number }) => ({ x, y, number }))
+      
+      // Add detailed debugging
+      console.log('🔍 DETAILED DEBUG - Turn Confirmation:')
+      console.log('  Game ID:', blockchainGameId)
+      console.log('  Current Game State:', currentGame)
+      console.log('  Player Info:', playerInfo)
+      console.log('  Staged Placements:', stagedPlacements)
+      console.log('  Placements to Send:', placements)
+      console.log('  Board State (placed tiles):', placedTiles)
+      console.log('  Is First Placement?:', placedTiles.length === 0 && stagedPlacements.length === 1)
+      console.log('  Game allows islands?:', currentGame.allowIslands)
+      
+      // Validate each placement again before sending
+      for (const placement of placements) {
+        const validation = validatePlacement(placement.x, placement.y, placement.number)
+        console.log(`  Placement (${placement.x}, ${placement.y}, ${placement.number}) validation:`, validation)
+      }
+      
+      const txHash = await playTurn(blockchainGameId, placements)
       
       setGameMessage(`Turn confirmed! Transaction: ${txHash.slice(0, 10)}...`)
       
-      // Move staged placements to placed tiles for immediate feedback
-      setPlacedTiles(prev => [...prev, ...stagedPlacements.map(placement => ({
-        ...placement,
-        turnPlaced: currentGame.turnNumber
-      }))])
-      
-      // Clear staged placements
+      // Clear staged placements first
       setStagedPlacements([])
+      
+      // Reload board tiles from blockchain to get authoritative state
+      // This ensures other players see the new tiles
+      setTimeout(() => {
+        loadBoardTiles()
+      }, 1000) // Small delay to allow blockchain state to update
       
     } catch (error) {
       console.error('❌ Failed to confirm turn:', error)
+      console.error('❌ Error details:', error.message, error.stack)
       setGameMessage(`Failed to confirm turn: ${error.message}`)
     } finally {
       setIsConfirming(false)
     }
-  }, [currentGame, playerInfo, stagedPlacements, blockchainGameId, playTurn])
+  }, [currentGame, playerInfo, stagedPlacements, blockchainGameId, playTurn, validatePlacement])
 
   // Clear staged placements
   const handleClearStaged = useCallback(() => {
@@ -248,7 +460,7 @@ export function BlockchainGameBoard({
     if (!currentGame || !playerInfo) return
     
     const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                    currentGame.playerAddresses.find(addr => playerInfo.hasJoined)?.toLowerCase()
+                    primaryWallet?.address?.toLowerCase()
     
     if (!isMyTurn) {
       setGameMessage('Not your turn!')
@@ -270,40 +482,87 @@ export function BlockchainGameBoard({
 
   // Create hand tiles for the UI from the new contract format
   const handTiles = useMemo(() => {
-    if (!playerInfo || !playerInfo.hand) {
+    if (!playerInfo || !playerInfo.hand || !Array.isArray(playerInfo.hand)) {
+      console.log('❌ No hand data - playerInfo:', !!playerInfo, 'hand:', playerInfo?.hand)
       return []
     }
     
+    console.log('✅ Hand data found:', playerInfo.hand)
+    console.log('🔍 Staged placements:', stagedPlacements.length, stagedPlacements.map(p => p.tileUniqueId))
+    
     // New contract gives us tiles as display numbers (0-9) directly
-    return playerInfo.hand.map((tileNumber: number, index: number) => ({
+    const allHandTiles = playerInfo.hand.map((tileNumber: number, index: number) => ({
       id: getNumberTileId(tileNumber),
-      uniqueId: `blockchain-hand-${index}`,
+      uniqueId: `hand-${blockchainGameId}-${playerInfo.lastMoveTime}-${index}`, // Stable unique ID based on game state
       location: { type: 'Hand' as const, player: 'current' },
       number: tileNumber // Display number (0-9)
     } as BlockchainTile))
-  }, [playerInfo])
+    
+    // Filter out tiles that have been staged
+    const stagedTileIds = stagedPlacements.map(placement => placement.tileUniqueId)
+    const availableHandTiles = allHandTiles.filter(tile => !stagedTileIds.includes(tile.uniqueId))
+    
+    console.log('🎯 Hand tiles debug:')
+    console.log('  - All hand tiles:', allHandTiles.length, allHandTiles.map(t => `${t.number}(${t.uniqueId})`))
+    console.log('  - Staged tile IDs:', stagedTileIds)
+    console.log('  - Available hand tiles:', availableHandTiles.length, availableHandTiles.map(t => `${t.number}(${t.uniqueId})`))
+    
+    return availableHandTiles
+  }, [playerInfo, stagedPlacements])
+
+  // Keep track of last known good data to prevent flashing during refreshes
+  // Update last known data whenever we get fresh data
+  if (currentGame && currentGame !== lastKnownGame) {
+    setLastKnownGame(currentGame)
+  }
+  if (playerInfo && playerInfo !== lastKnownPlayerInfo) {
+    setLastKnownPlayerInfo(playerInfo)
+  }
+  
+  // Use current data or fall back to last known data
+  const displayGame = currentGame || lastKnownGame
+  const displayPlayerInfo = playerInfo || lastKnownPlayerInfo
+
+  // Prepare endgame modal data
+  const endGameData = useMemo(() => {
+    if (!displayGame || displayGame.state !== 2 || !displayPlayerInfo) return null
+
+    // Create player data for the modal
+    const allPlayers = displayGame.playerAddresses.map((address: string, index: number) => ({
+      address,
+      name: `Player ${index + 1}`,
+      score: displayGame.playerScores[index] || 0,
+      finalHandSize: address.toLowerCase() === primaryWallet?.address?.toLowerCase() 
+        ? (displayPlayerInfo.hand?.length || 0) 
+        : 0 // We don't have other players' hand info
+    }))
+
+    // Find winner (highest score)
+    const winner = allPlayers.reduce((prev, current) => 
+      current.score > prev.score ? current : prev
+    )
+
+    const gameStats = {
+      totalTurns: displayGame.turnNumber || 0,
+      finalTilePool: displayGame.tilesRemaining || 0,
+      gameTime: undefined // Could add game duration calculation if needed
+    }
+
+    return { winner, allPlayers, gameStats }
+  }, [displayGame, displayPlayerInfo, primaryWallet])
 
   // Convert blockchain state to local game format
   const localGameConfig = useMemo(() => {
-    if (!currentGame) return gameConfig
+    if (!displayGame) return gameConfig
     
     return {
       ...gameConfig,
-      playerCount: currentGame.playerAddresses.length,
-      playerNames: currentGame.playerAddresses.map((addr: string, i: number) => 
+      playerCount: displayGame.playerAddresses.length,
+      playerNames: displayGame.playerAddresses.map((addr: string, i: number) => 
         `Player ${i + 1} (${addr.slice(0, 6)}...${addr.slice(-4)})`
       )
     }
-  }, [currentGame, gameConfig])
-
-  if (loading) {
-    return (
-      <div css={loadingStyle}>
-        <div css={spinnerStyle}></div>
-        <p>Loading blockchain game...</p>
-      </div>
-    )
-  }
+  }, [displayGame, gameConfig])
 
   if (error) {
     return (
@@ -317,10 +576,23 @@ export function BlockchainGameBoard({
     )
   }
 
-  if (!currentGame || !playerInfo) {
+  // Only show loading during initial load when we haven't loaded any data yet
+  if (loading || (!currentGame && !playerInfo && isInitialLoad)) {
     return (
       <div css={loadingStyle}>
-        <p>Connecting to blockchain game...</p>
+        <div css={spinnerStyle}></div>
+        <p>Loading blockchain game...</p>
+      </div>
+    )
+  }
+
+  // Only show loading if we have never successfully loaded any data
+  if (!displayGame || !displayPlayerInfo) {
+    console.log('⚠️ No game data available yet, showing loading...')
+    return (
+      <div css={loadingStyle}>
+        <div css={spinnerStyle}></div>
+        <p>Loading blockchain game...</p>
       </div>
     )
   }
@@ -344,12 +616,12 @@ export function BlockchainGameBoard({
           <div css={headerCenterStyle}>
             <div css={turnInfoStyle}>
               <span css={turnLabelStyle}>Turn</span>
-              <span css={turnNumberStyle}>{currentGame.turnNumber}</span>
+              <span css={turnNumberStyle}>{displayGame.turnNumber}</span>
             </div>
             <div css={separatorStyle}>•</div>
             <div css={infoRowStyle}>
               <div css={scoreInfoStyle}>
-                <span css={scoreNumberStyle}>{playerInfo.score}</span>
+                <span css={scoreNumberStyle}>{displayPlayerInfo.score}</span>
                 <span css={scoreLabelStyle}>Points</span>
               </div>
               <div css={separatorStyle}>•</div>
@@ -359,24 +631,29 @@ export function BlockchainGameBoard({
               </div>
               <div css={separatorStyle}>•</div>
               <div css={tilesInfoStyle}>
-                <span css={tilesNumberStyle}>{currentGame.tilesRemaining}</span>
+                <span css={tilesNumberStyle}>{displayGame.tilesRemaining}</span>
                 <span css={tilesLabelStyle}>Pool</span>
               </div>
               <div css={separatorStyle}>•</div>
               <div css={currentPlayerStyle}>
-                {currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                 currentGame.playerAddresses.find(addr => playerInfo.hasJoined)?.toLowerCase() 
+                {displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === 
+                 primaryWallet?.address?.toLowerCase() 
                   ? 'Your Turn' 
-                  : `Player ${currentGame.currentPlayerIndex + 1}'s Turn`}
+                  : `Waiting for ${displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(0, 6)}...${displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(-4)}`}
               </div>
             </div>
           </div>
 
           <div css={headerRightStyle}>
+            {isSyncing && (
+              <div css={syncIndicatorStyle}>
+                🔄 Syncing...
+              </div>
+            )}
             <div css={gameStateIndicatorStyle}>
-              {currentGame.state === 0 ? '⏳ Setup' : 
-               currentGame.state === 1 ? '✅ Playing' : 
-               currentGame.state === 2 ? '🏁 Complete' : '❌ Cancelled'}
+              {displayGame.state === 0 ? '⏳ Setup' : 
+               displayGame.state === 1 ? '✅ Playing' : 
+               displayGame.state === 2 ? '🏁 Complete' : '❌ Cancelled'}
             </div>
           </div>
         </div>
@@ -399,6 +676,10 @@ export function BlockchainGameBoard({
                     placement => placement.x === blockchainX && placement.y === blockchainY
                   )
                   
+                  // Check if this is a valid placement position for the selected tile
+                  const isValidPosition = selectedTile && !placedTile && !stagedTile ? 
+                    validatePlacement(blockchainX, blockchainY, selectedTile.number).isValid : false
+                  
                   return (
                     <div
                       key={`${row}-${col}`}
@@ -414,7 +695,7 @@ export function BlockchainGameBoard({
                           <span css={tileNumberStyle}>{stagedTile.number}</span>
                         </div>
                       ) : (
-                        <div css={emptySpaceStyle}>
+                        <div css={[emptySpaceStyle, isValidPosition && validPositionStyle]}>
                           {row === 7 && col === 7 ? '★' : ''}
                         </div>
                       )}
@@ -505,7 +786,7 @@ export function BlockchainGameBoard({
 
         {/* Tile Pool Status */}
         <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Tile Pool ({currentGame.tilesRemaining} remaining)</h3>
+          <h3 css={sectionTitleStyle}>Tile Pool ({displayGame.tilesRemaining} remaining)</h3>
           <div css={tilePoolStyle}>
             {tilePoolStatus.map((count, number) => (
               <div key={number} css={poolItemStyle}>
@@ -516,25 +797,66 @@ export function BlockchainGameBoard({
           </div>
         </div>
 
+        {/* Game Rules */}
+        <div css={sectionStyle}>
+          <h3 css={sectionTitleStyle}>Game Rules</h3>
+          <div css={rulesStyle}>
+            <div css={ruleItemStyle}>
+              <strong>Placement:</strong> Tiles must be adjacent to existing tiles
+            </div>
+            <div css={ruleItemStyle}>
+              <strong>Math Rule:</strong> Adjacent numbers must sum to 5 OR differ by 5
+            </div>
+            <div css={ruleItemStyle}>
+              <strong>Examples:</strong>
+              <div css={examplesStyle}>
+                <span>Sum: 2+3=5, 1+4=5, 0+5=5</span>
+                <span>Diff: 9-4=5, 8-3=5, 7-2=5</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Game Info */}
         <div css={sectionStyle}>
           <h3 css={sectionTitleStyle}>Game Info</h3>
           <div css={gameInfoStyle}>
             <div css={infoItemStyle}>
               <span>Players:</span>
-              <span>{currentGame.playerAddresses.length}/{currentGame.maxPlayers}</span>
+              <span>{displayGame.playerAddresses.length}/{displayGame.maxPlayers}</span>
             </div>
             <div css={infoItemStyle}>
               <span>Turn:</span>
-              <span>{currentGame.turnNumber}</span>
+              <span>{displayGame.turnNumber}</span>
             </div>
             <div css={infoItemStyle}>
               <span>Score:</span>
-              <span>{playerInfo.score}</span>
+              <span>{displayPlayerInfo.score}</span>
             </div>
             <div css={infoItemStyle}>
               <span>Status:</span>
-              <span>{currentGame.state === 1 ? 'Playing' : 'Waiting'}</span>
+              <span>{displayGame.state === 1 ? 'Playing' : 'Waiting'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Turn Debug (always visible) */}
+        <div css={sectionStyle}>
+          <h3 css={sectionTitleStyle}>Turn Status</h3>
+          <div css={debugContentStyle}>
+            <div css={debugItemStyle}>
+              Current Player Index: <strong>{displayGame.currentPlayerIndex}</strong>
+            </div>
+            <div css={debugItemStyle}>
+              Current Player: <strong>{displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(0, 8)}...</strong>
+            </div>
+            <div css={debugItemStyle}>
+              Your Address: <strong>{primaryWallet?.address?.slice(0, 8)}...</strong>
+            </div>
+            <div css={debugItemStyle}>
+              Is Your Turn: <strong style={{color: displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? '#10b981' : '#f87171'}}>
+                {displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? 'YES' : 'NO'}
+              </strong>
             </div>
           </div>
         </div>
@@ -545,14 +867,30 @@ export function BlockchainGameBoard({
             <summary css={debugTitleStyle}>Debug Info</summary>
             <div css={debugContentStyle}>
               <div css={debugItemStyle}>Game ID: {blockchainGameId}</div>
-              <div css={debugItemStyle}>State: {currentGame.state}</div>
-              <div css={debugItemStyle}>Current Player: {currentGame.currentPlayerIndex}</div>
-              <div css={debugItemStyle}>Tiles in Pool: {currentGame.tilesRemaining}</div>
+              <div css={debugItemStyle}>State: {displayGame.state}</div>
+              <div css={debugItemStyle}>Current Player: {displayGame.currentPlayerIndex}</div>
+              <div css={debugItemStyle}>Tiles in Pool: {displayGame.tilesRemaining}</div>
               <div css={debugItemStyle}>Hand Size: {handTiles.length}</div>
             </div>
           </details>
         </div>
       </div>
+      
+      {/* Endgame Modal */}
+      {showEndGameModal && endGameData && (
+        <BlockchainEndGameModal
+          isOpen={showEndGameModal}
+          onClose={() => setShowEndGameModal(false)}
+          gameId={blockchainGameId}
+          winner={endGameData.winner}
+          allPlayers={endGameData.allPlayers}
+          gameStats={endGameData.gameStats}
+          onNewGame={() => {
+            setShowEndGameModal(false)
+            onBackToSetup()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -765,6 +1103,21 @@ const gameStateIndicatorStyle = css`
   background: rgba(16, 185, 129, 0.2);
   padding: 4px 8px;
   border-radius: 4px;
+`
+
+const syncIndicatorStyle = css`
+  font-size: 11px;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  animation: pulse 1.5s ease-in-out infinite alternate;
+  
+  @keyframes pulse {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+  }
 `
 
 const boardAreaStyle = css`
@@ -1129,6 +1482,46 @@ const clearButtonStyle = css`
     background: #6b7280;
     cursor: not-allowed;
   }
+`
+
+const validPositionStyle = css`
+  border-color: rgba(16, 185, 129, 0.6) !important;
+  background: rgba(16, 185, 129, 0.1) !important;
+  
+  &:hover {
+    border-color: rgba(16, 185, 129, 0.8) !important;
+    background: rgba(16, 185, 129, 0.2) !important;
+    transform: scale(1.05);
+  }
+`
+
+const rulesStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  color: #a1a1aa;
+`
+
+const ruleItemStyle = css`
+  line-height: 1.4;
+  
+  strong {
+    color: #e5e5e5;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+`
+
+const examplesStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #6b7280;
+  font-family: 'Monaco', 'Menlo', monospace;
 `
 
 

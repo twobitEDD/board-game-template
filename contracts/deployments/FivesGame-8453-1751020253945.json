@@ -1,0 +1,13 @@
+{
+  "contractName": "FivesGame",
+  "contractAddress": "0x80f80B22D1839F2216F7f7814398e7039Fc17546",
+  "networkName": "base",
+  "chainId": "8453",
+  "deployerAddress": "0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1",
+  "transactionHash": "0x06866899c2d5055e9ea33737abcd2b300e21fdb178f191ffe6468820338b24d5",
+  "gasUsed": "3591735",
+  "gasPrice": "1538901",
+  "deploymentCost": "0.000005527324583235",
+  "timestamp": "2025-06-27T10:30:53.944Z",
+  "blockNumber": 32115451
+}

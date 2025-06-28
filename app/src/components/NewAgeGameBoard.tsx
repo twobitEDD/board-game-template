@@ -6,7 +6,7 @@ import { NewAgeTile } from './NewAgeTile'
 import { NewAgePlayerPanel } from './NewAgePlayerPanel'
 import { NewAgeGameHeader } from './NewAgeGameHeader'
 import { NewAgeEndGameModal } from './NewAgeEndGameModal'
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
+import { NumberTileId, GameParkUtils } from '../gamepark'
 
 // Proper tile structure from original game
 interface TileItem {
@@ -227,174 +227,52 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     return drawnTiles
   }
 
-  // Validate turn placement (from original)
-  const validateTurnPlacement = (placedTiles: TileItem[], existingTiles: TileItem[]) => {
-    if (placedTiles.length === 0) {
-      return { isValid: false, error: "No tiles placed" }
-    }
+  // Validate mathematical rules (sum equals 5) - matching contract logic
+  const isValidMathematicalPlacement = (x: number, y: number, tileNumber: number, placedTiles: TileItem[], stagedTiles: TileItem[] = []) => {
+    const adjacentPositions = [
+      { x: x - 1, y },     // Left
+      { x: x + 1, y },     // Right
+      { x: x, y: y - 1 },     // Up
+      { x: x, y: y + 1 }      // Down
+    ]
 
-    // First move rules
-    if (existingTiles.length <= 1) { // Only center tile
-      const centerOrAdjacent = placedTiles.some(tile => {
-        const x = tile.location.x || 0
-        const y = tile.location.y || 0
-        return (x === 7 && y === 7) || 
-               (Math.abs(x - 7) <= 1 && Math.abs(y - 7) <= 1 && (x === 7 || y === 7))
-      })
-      if (!centerOrAdjacent) {
-        return { isValid: false, error: "First tile must be on or adjacent to center" }
-      }
-    } else if (!gameConfig.allowIslands) {
-      // Check adjacency - at least one placed tile must be adjacent to existing tiles (unless islands are allowed)
-      console.log('🏝️ validateTurnPlacement - allowIslands:', gameConfig.allowIslands)
-      const existingPositions = new Set<string>()
-      existingTiles.forEach(tile => {
-        const x = tile.location.x || 0
-        const y = tile.location.y || 0
-        existingPositions.add(`${x-1},${y}`)
-        existingPositions.add(`${x+1},${y}`)
-        existingPositions.add(`${x},${y-1}`)
-        existingPositions.add(`${x},${y+1}`)
-      })
-      
-      const hasAdjacency = placedTiles.some(placedTile => {
-        const px = placedTile.location.x || 0
-        const py = placedTile.location.y || 0
-        return existingPositions.has(`${px},${py}`)
-      })
-      
-      if (!hasAdjacency) {
-        console.log('🚫 validateTurnPlacement blocked by adjacency check')
-        return { isValid: false, error: "Tiles must be adjacent to existing tiles on board" }
-      }
-    } else {
-      console.log('✅ validateTurnPlacement - Islands allowed - skipping adjacency check')
-    }
+    let hasAdjacent = false
 
-    // Check turn contiguity - all placed tiles must form a contiguous line
-    if (placedTiles.length > 1) {
-      const xValues = placedTiles.map(tile => tile.location.x || 0)
-      const yValues = placedTiles.map(tile => tile.location.y || 0)
+    for (const pos of adjacentPositions) {
+      // Check placed tiles
+      const placedTile = placedTiles.find(tile => tile.location.x === pos.x && tile.location.y === pos.y)
+      // Check staged tiles
+      const stagedTile = stagedTiles.find(tile => tile.location.x === pos.x && tile.location.y === pos.y)
       
-      const allSameRow = yValues.every(y => y === yValues[0])
-      const allSameCol = xValues.every(x => x === xValues[0])
+      const adjacentNumber = placedTile ? getTileValue(placedTile.id) : (stagedTile ? getTileValue(stagedTile.id) : undefined)
       
-      if (!allSameRow && !allSameCol) {
-        return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
-      }
-      
-      // Check for contiguity, considering existing tiles that might fill gaps
-      if (allSameRow) {
-        const y = yValues[0]
-        const sortedX = [...xValues].sort((a, b) => a - b)
+      if (adjacentNumber !== undefined) {
+        hasAdjacent = true
         
-        // Check if there are existing tiles that could fill any gaps
-        for (let i = 1; i < sortedX.length; i++) {
-          const gap = sortedX[i] - sortedX[i-1]
-          if (gap > 1) {
-            // Check if existing tiles fill the gap
-            let gapFilled = true
-            for (let fillX = sortedX[i-1] + 1; fillX < sortedX[i]; fillX++) {
-              const hasExistingTile = existingTiles.some(tile => 
-                tile.location.x === fillX && tile.location.y === y
-              )
-              if (!hasExistingTile) {
-                gapFilled = false
-                break
-              }
-            }
-            if (!gapFilled) {
-              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
-            }
-          }
-        }
-      } else if (allSameCol) {
-        const x = xValues[0]
-        const sortedY = [...yValues].sort((a, b) => a - b)
+        // Check mathematical rules: sum must equal 5 (matching contract)
+        const sum = tileNumber + adjacentNumber
         
-        // Check if there are existing tiles that could fill any gaps
-        for (let i = 1; i < sortedY.length; i++) {
-          const gap = sortedY[i] - sortedY[i-1]
-          if (gap > 1) {
-            // Check if existing tiles fill the gap
-            let gapFilled = true
-            for (let fillY = sortedY[i-1] + 1; fillY < sortedY[i]; fillY++) {
-              const hasExistingTile = existingTiles.some(tile => 
-                tile.location.x === x && tile.location.y === fillY
-              )
-              if (!hasExistingTile) {
-                gapFilled = false
-                break
-              }
-            }
-            if (!gapFilled) {
-              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
-            }
-          }
+        if (sum !== 5) {
+          return { valid: false, reason: `Tile ${tileNumber} cannot be placed next to ${adjacentNumber}. Sum must equal 5 (currently ${sum}).` }
         }
       }
     }
 
-    // Check 5-tile sequence limits - all tiles must respect the 5-tile maximum
-    const allTiles = [...existingTiles, ...placedTiles]
-    const positionMap = new Map<string, TileItem>()
-    allTiles.forEach(tile => {
-      if (tile.location.x !== undefined && tile.location.y !== undefined) {
-        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
-      }
-    })
-    
-    const checkedRows = new Set<number>()
-    const checkedCols = new Set<number>()
-    
-    for (const tile of allTiles) {
-      const x = tile.location.x || 0
-      const y = tile.location.y || 0
-      
-      // Check horizontal sequence length (only once per row)
-      if (!checkedRows.has(y)) {
-        checkedRows.add(y)
-        let leftX = x
-        while (leftX > 0 && positionMap.has(`${leftX - 1},${y}`)) {
-          leftX--
-        }
-        let horizontalCount = 0
-        for (let currentX = leftX; currentX < 15; currentX++) {
-          if (positionMap.has(`${currentX},${y}`)) {
-            horizontalCount++
-          } else {
-            break
-          }
-        }
-        
-        if (horizontalCount > 5) {
-          return { isValid: false, error: `Horizontal sequence too long (${horizontalCount} tiles, max 5)` }
-        }
-      }
-      
-      // Check vertical sequence length (only once per column)
-      if (!checkedCols.has(x)) {
-        checkedCols.add(x)
-        let topY = y
-        while (topY > 0 && positionMap.has(`${x},${topY - 1}`)) {
-          topY--
-        }
-        let verticalCount = 0
-        for (let currentY = topY; currentY < 15; currentY++) {
-          if (positionMap.has(`${x},${currentY}`)) {
-            verticalCount++
-          } else {
-            break
-          }
-        }
-        
-        if (verticalCount > 5) {
-          return { isValid: false, error: `Vertical sequence too long (${verticalCount} tiles, max 5)` }
-        }
+    // If this is the very first tile (no placed tiles and no staged tiles), allow anywhere
+    if (!hasAdjacent && placedTiles.length === 0 && stagedTiles.length === 0) {
+      return { valid: true }
+    }
+
+    // If there are already placed tiles, or this is the 2nd+ staged tile, must be adjacent (unless islands allowed)
+    if (!hasAdjacent) {
+      if (gameConfig.allowIslands) {
+        return { valid: true }
+      } else {
+        return { valid: false, reason: 'Tile must be placed adjacent to existing tiles.' }
       }
     }
 
-    return { isValid: true, error: null }
+    return { valid: true }
   }
 
   // Get horizontal sequence (from original)
@@ -530,152 +408,17 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     return sequences
   }
 
-  // Quick validation for immediate feedback during placement (from original)
-  const quickValidatePlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[], allTiles: TileItem[]) => {
+  // Quick validation for immediate feedback during placement (updated to match contract)
+  const quickValidatePlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[], allTiles: TileItem[], selectedTileNumber: number) => {
     // Bounds check
     if (x < 0 || x >= 15 || y < 0 || y >= 15) {
       return { isValid: false, error: "Outside board boundaries" }
     }
 
-    // First move rules
-    if (allTiles.length <= 1) { // Only center tile
-      const isCenterOrAdjacent = (x === 7 && y === 7) || 
-        (Math.abs(x - 7) <= 1 && Math.abs(y - 7) <= 1 && (x === 7 || y === 7))
-      if (!isCenterOrAdjacent) {
-        return { isValid: false, error: "First tile must be on or adjacent to center" }
-      }
-      return { isValid: true, error: null }
-    }
-
-    // Check adjacency to existing tiles (unless islands are allowed)
-    console.log('🏝️ Island check - allowIslands:', gameConfig.allowIslands)
-    if (!gameConfig.allowIslands) {
-      const isAdjacent = allTiles.some(tile => {
-        const tx = tile.location.x || 0
-        const ty = tile.location.y || 0
-        return (Math.abs(tx - x) === 1 && ty === y) || (tx === x && Math.abs(ty - y) === 1)
-      })
-      if (!isAdjacent) {
-        console.log('🚫 Blocked by adjacency check')
-        return { isValid: false, error: "Must be adjacent to existing tiles" }
-      }
-    } else {
-      console.log('✅ Islands allowed - skipping adjacency check')
-    }
-
-    // Check contiguity within the turn
-    if (tilesPlacedThisTurn.length > 0) {
-      const xValues = tilesPlacedThisTurn.map(tile => tile.location.x || 0).concat([x])
-      const yValues = tilesPlacedThisTurn.map(tile => tile.location.y || 0).concat([y])
-      
-      const allSameRow = yValues.every(y => y === yValues[0])
-      const allSameCol = xValues.every(x => x === xValues[0])
-      
-      if (!allSameRow && !allSameCol) {
-        return { isValid: false, error: "All tiles in a turn must be in the same row OR column" }
-      }
-      
-      // Check for contiguity, considering existing tiles that might fill gaps
-      if (allSameRow) {
-        const y = yValues[0]
-        const sortedX = [...xValues].sort((a, b) => a - b)
-        
-        // Check if there are existing tiles that could fill any gaps
-        for (let i = 1; i < sortedX.length; i++) {
-          const gap = sortedX[i] - sortedX[i-1]
-          if (gap > 1) {
-            // Check if existing tiles fill the gap
-            let gapFilled = true
-            for (let fillX = sortedX[i-1] + 1; fillX < sortedX[i]; fillX++) {
-              const hasExistingTile = allTiles.some(tile => 
-                tile.location.x === fillX && tile.location.y === y
-              )
-              if (!hasExistingTile) {
-                gapFilled = false
-                break
-              }
-            }
-            if (!gapFilled) {
-              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
-            }
-          }
-        }
-      } else if (allSameCol) {
-        const x = xValues[0]
-        const sortedY = [...yValues].sort((a, b) => a - b)
-        
-        // Check if there are existing tiles that could fill any gaps
-        for (let i = 1; i < sortedY.length; i++) {
-          const gap = sortedY[i] - sortedY[i-1]
-          if (gap > 1) {
-            // Check if existing tiles fill the gap
-            let gapFilled = true
-            for (let fillY = sortedY[i-1] + 1; fillY < sortedY[i]; fillY++) {
-              const hasExistingTile = allTiles.some(tile => 
-                tile.location.x === x && tile.location.y === fillY
-              )
-              if (!hasExistingTile) {
-                gapFilled = false
-                break
-              }
-            }
-            if (!gapFilled) {
-              return { isValid: false, error: "Tiles must form a contiguous line with no gaps" }
-            }
-          }
-        }
-      }
-    }
-
-    // Check 5-tile sequence limits - prevent placing tiles that would create sequences longer than 5
-    const allTilesWithNew = [...allTiles, { 
-      id: NumberTileId.One, // Dummy tile for position checking
-      uniqueId: 'temp', 
-      location: { type: 'Board', x, y } 
-    }]
-    
-    // Create position map for sequence checking
-    const positionMap = new Map<string, TileItem>()
-    allTilesWithNew.forEach(tile => {
-      if (tile.location.x !== undefined && tile.location.y !== undefined) {
-        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
-      }
-    })
-    
-    // Check horizontal sequence length at this position
-    let leftX = x
-    while (leftX > 0 && positionMap.has(`${leftX - 1},${y}`)) {
-      leftX--
-    }
-    let horizontalCount = 0
-    for (let currentX = leftX; currentX < 15; currentX++) {
-      if (positionMap.has(`${currentX},${y}`)) {
-        horizontalCount++
-      } else {
-        break
-      }
-    }
-    
-    if (horizontalCount > 5) {
-      return { isValid: false, error: `Would create horizontal sequence of ${horizontalCount} tiles (max 5)` }
-    }
-    
-    // Check vertical sequence length at this position
-    let topY = y
-    while (topY > 0 && positionMap.has(`${x},${topY - 1}`)) {
-      topY--
-    }
-    let verticalCount = 0
-    for (let currentY = topY; currentY < 15; currentY++) {
-      if (positionMap.has(`${x},${currentY}`)) {
-        verticalCount++
-      } else {
-        break
-      }
-    }
-    
-    if (verticalCount > 5) {
-      return { isValid: false, error: `Would create vertical sequence of ${verticalCount} tiles (max 5)` }
+    // Use mathematical placement validation (matching contract)
+    const validation = isValidMathematicalPlacement(x, y, selectedTileNumber, allTiles, tilesPlacedThisTurn)
+    if (!validation.valid) {
+      return { isValid: false, error: validation.reason! }
     }
 
     return { isValid: true, error: null }
@@ -741,6 +484,46 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     }
     
     return connectedTiles
+  }
+
+  const handleBoardClick = (x: number, y: number) => {
+    if (!selectedTile) {
+      setGameMessage("Select a thread from your hand first!")
+      return
+    }
+
+    // Check if position is already occupied
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    const existingTile = allTiles.find(tile => tile.location.x === x && tile.location.y === y)
+    
+    if (existingTile) {
+      setGameMessage("Position already occupied!")
+      return
+    }
+
+    // Check mathematical placement rules for immediate feedback
+    const validationResult = isValidMathematicalPlacement(x, y, getTileValue(selectedTile.id), allTiles, tilesPlacedThisTurn)
+    if (!validationResult.valid) {
+      setGameMessage(`🚫 ${validationResult.reason}`)
+      return
+    }
+
+    // Valid placement - place the tile
+    const placedTile: TileItem = {
+      id: selectedTile.id,
+      uniqueId: selectedTile.uniqueId,
+      location: { type: 'board', x, y }
+    }
+
+    setTilesPlacedThisTurn(prev => [...prev, placedTile])
+    
+    // Remove from hand
+    updateCurrentPlayerHand(prevHand => 
+      prevHand.filter(tile => tile.uniqueId !== selectedTile.uniqueId)
+    )
+
+    setSelectedTile(null)
+    setGameMessage(`Thread placed at (${x}, ${y})`)
   }
 
   const handlePlacedTileClick = (tile: TileItem) => {
@@ -872,150 +655,39 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     setGameMessage(message)
   }
 
-  const handleBoardClick = (x: number, y: number) => {
-    // Check if position is occupied first - if so, don't handle board click
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    const isOccupied = allTiles.some(tile => tile.location.x === x && tile.location.y === y)
-    
-    if (isOccupied) {
-      // Don't show error message, just ignore the click - the tile's onClick will handle it
-      return
-    }
-    
-    if (!selectedTile) {
-      setGameMessage("Please select a tile from your hand first!")
-      return
-    }
-
-    // Check basic placement rules for immediate feedback
-    const validationResult = quickValidatePlacement(x, y, tilesPlacedThisTurn, allTiles)
-    if (!validationResult.isValid) {
-      setGameMessage(`🚫 ${validationResult.error}`)
-      return
-    }
-
-    const newTile: TileItem = {
-      id: selectedTile.id,
-      uniqueId: selectedTile.uniqueId,
-      location: { type: 'Board', x, y }
-    }
-    
-    const newTilesPlacedThisTurn = [...tilesPlacedThisTurn, newTile]
-    
-    // For calculations, combine board tiles with tiles placed this turn
-    const allTilesForCalculation = [...boardTiles, ...newTilesPlacedThisTurn]
-    
-    // Calculate turn score with real-time feedback
-    const turnSequences = calculateTurnSequences(allTilesForCalculation, newTilesPlacedThisTurn)
-    const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
-    
-    // Generate real-time feedback message
-    let feedbackMessage = `🔄 ${newTilesPlacedThisTurn.length} tile(s) placed. `
-    
-    if (turnSequences.length > 0) {
-      const sequenceText = turnSequences.map(seq => {
-        const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
-        return `${tileValues} = ${seq.sum}`
-      }).join(', ')
-      feedbackMessage += `Preview: ${sequenceText}. Potential score: ${newTurnScore} pts. ✅ Ready to end turn!`
-    } else {
-      // Check for invalid sequences
-      let hasInvalidSequence = false
-      for (const placedTile of newTilesPlacedThisTurn) {
-        if (placedTile.location.x === undefined || placedTile.location.y === undefined) continue
-        const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTilesForCalculation)
-        for (const seq of sequences) {
-          const hasNewTile = seq.tiles.some(tile => 
-            newTilesPlacedThisTurn.some(placed => 
-              placed.location.x === tile.location.x && placed.location.y === tile.location.y
-            )
-          )
-          if (hasNewTile && (seq.sum % 5 !== 0 || seq.sum === 0)) {
-            hasInvalidSequence = true
-            break
-          }
-        }
-        if (hasInvalidSequence) break
-      }
-      
-      if (hasInvalidSequence) {
-        feedbackMessage += `❌ Current sequences don't sum to multiples of 5. Place more tiles or undo.`
-      } else {
-        feedbackMessage += `🔄 Need sequences that sum to multiples of 5 to score. Click green tiles to return them.`
-      }
-    }
-    
-    // Don't update boardTiles - tiles should only be confirmed when turn ends
-    setTilesPlacedThisTurn(newTilesPlacedThisTurn)
-    setTurnScore(newTurnScore)
-    setSelectedTile(null)
-    setGameMessage(feedbackMessage)
-    
-    // Remove tile from hand
-    console.log('🎯 REMOVING TILE FROM HAND:', getTileValue(selectedTile!.id))
-    console.log('  - Hand size BEFORE removal:', handTiles.length)
-    updateCurrentPlayerHand(prev => {
-      const newHand = prev.filter(tile => tile.uniqueId !== selectedTile!.uniqueId)
-      console.log('  - Hand size AFTER removal:', newHand.length)
-      return newHand
-    })
-  }
-
   const handleEndTurn = () => {
     if (tilesPlacedThisTurn.length === 0) {
       setGameMessage("You must place at least one tile before ending your turn!")
       return
     }
 
-    // Comprehensive validation only when ending turn
+    // Simplified validation - just check that tiles were placed
     const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
     
-    // 1. Check basic placement rules (adjacency, contiguity)
-    const validationResult = validateTurnPlacement(tilesPlacedThisTurn, boardTiles)
-    if (!validationResult.isValid) {
-      setGameMessage(`🚫 Invalid turn: ${validationResult.error}`)
-      return
-    }
-
-    // 2. Check that all sequences sum to multiples of 5
-    let hasValidSequence = false
-    let hasInvalidSequence = false
-
+    // Validate each placement follows mathematical rules (already checked during placement)
     for (const placedTile of tilesPlacedThisTurn) {
-      if (placedTile.location.x === undefined || placedTile.location.y === undefined) continue
-      
-      const sequences = getSequencesAtPosition(placedTile.location.x, placedTile.location.y, allTiles)
-      
-      for (const seq of sequences) {
-        const hasNewTile = seq.tiles.some(tile => 
-          tilesPlacedThisTurn.some(placed => 
-            placed.location.x === tile.location.x && placed.location.y === tile.location.y
-          )
-        )
-        
-        if (hasNewTile) {
-          if (seq.sum % 5 === 0 && seq.sum > 0) {
-            hasValidSequence = true
-          } else {
-            hasInvalidSequence = true
-          }
-        }
+      const validation = isValidMathematicalPlacement(
+        placedTile.location.x!, 
+        placedTile.location.y!, 
+        getTileValue(placedTile.id), 
+        boardTiles, 
+        tilesPlacedThisTurn.filter(t => t !== placedTile)
+      )
+      if (!validation.valid) {
+        setGameMessage(`🚫 Invalid placement: ${validation.reason}`)
+        return
       }
     }
-
-    if (!hasValidSequence) {
+    
+    // Calculate final score for this turn using sequence-based scoring (quinto style)
+    const turnSequences = calculateTurnSequences(allTiles, tilesPlacedThisTurn)
+    const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+    
+    // Validate that we have scoring sequences (sequences that sum to multiples of 5)
+    if (turnSequences.length === 0) {
       setGameMessage("🚫 Invalid turn: No valid sequences found. All sequences must sum to multiples of 5.")
       return
     }
-
-    if (hasInvalidSequence) {
-      setGameMessage("🚫 Invalid turn: Some sequences don't sum to multiples of 5. Fix or use Undo Turn.")
-      return
-    }
-    
-    // Calculate final score for this turn
-    const turnSequences = calculateTurnSequences(boardTiles, tilesPlacedThisTurn)
-    const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
     
     // Add turn score to current player's total score
     const newScores = [...scores]
@@ -1026,8 +698,7 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     const newBoardTiles = [...boardTiles, ...tilesPlacedThisTurn]
     setBoardTiles(newBoardTiles)
 
-    // EXACT COPY FROM WORKING FIVESGAMEBOARD.TSX:
-    // Draw new tiles to maintain exactly 5 tiles in hand (BEFORE state updates)
+    // Draw new tiles to maintain exactly 5 tiles in hand
     const playerPile = playerDrawPiles[currentPlayer] || []
     const tilesNeeded = Math.min(5 - handTiles.length, playerPile.length)
     if (tilesNeeded > 0) {
@@ -1040,29 +711,28 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       updateCurrentPlayerHand(prev => [...prev, ...newHandTiles])
     }
     
-    // Reset turn state (AFTER refill)
+    // Reset turn state
     setTilesPlacedThisTurn([])
     setTurnScore(0)
     setSelectedTile(null)
     
-    // Check for game end conditions (like original Fives rules)
-    // Game ends when all players have empty hands AND empty draw piles
+    // Check for game end conditions
     const allPlayersOutOfTiles = Array.from({ length: gameConfig.playerCount }, (_, i) => {
       const playerHand = i === currentPlayer ? handTiles : (playerHands[i] || [])
       const playerPile = playerDrawPiles[i] || []
       return playerHand.length === 0 && playerPile.length === 0
     }).every(isEmpty => isEmpty)
     
-    const isGameEnd = allPlayersOutOfTiles || turnNumber >= 200 // Safety limit
+    const isGameEnd = allPlayersOutOfTiles || turnNumber >= 200
 
-    // Switch to next player in multiplayer (from original logic)
+    // Switch to next player
     let nextPlayer = currentPlayer
     let newTurnNumber = turnNumber
     
     if (!isGameEnd && gameConfig.playerCount > 1) {
       nextPlayer = (currentPlayer + 1) % gameConfig.playerCount
       if (nextPlayer === 0) {
-        newTurnNumber = turnNumber + 1 // Complete round
+        newTurnNumber = turnNumber + 1
       }
     } else if (!isGameEnd && gameConfig.playerCount === 1) {
       newTurnNumber = turnNumber + 1
@@ -1088,7 +758,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
         completionMessage = `⏰ Game Complete! Turn limit reached.`
       }
       
-      // Show end game modal after a short delay
       setTimeout(() => setShowEndGameModal(true), 1500)
     } else {
       const nextPlayerName = gameConfig.playerNames[nextPlayer] || `Player ${nextPlayer + 1}`
