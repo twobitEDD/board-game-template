@@ -74,7 +74,8 @@ export function BlockchainGameBoard({
     loading: hookLoading,
     error: hookError,
     contractAddress,
-    networkName
+    networkName,
+    clearGame
   } = useBlockchainGame()
 
   const { primaryWallet } = useDynamicContext()
@@ -98,6 +99,34 @@ export function BlockchainGameBoard({
   
   // Mobile responsive state
   const [isMobile, setIsMobile] = useState(false)
+  
+  // Clear state when game ID changes (prevents tiles from previous games showing up)
+  useEffect(() => {
+    console.log('🔄 Game ID changed, clearing local state...', { blockchainGameId })
+    
+    // Clear hook state first
+    clearGame()
+    
+    // Clear all game-related state
+    setPlacedTiles([])
+    setStagedPlacements([])
+    setSelectedTile(null)
+    setTilePoolStatus([])
+    setGameMessage('Loading blockchain game...')
+    setError(null)
+    setIsInitialLoad(true)
+    setLoading(true)
+    setIsSyncing(false)
+    setLastSeenTurnNumber(0)
+    setShowEndGameModal(false)
+    setHasShownEndGameModal(false)
+    
+    // Clear last known data to prevent showing stale info
+    setLastKnownGame(null)
+    setLastKnownPlayerInfo(null)
+    
+    console.log('✅ Local state cleared for new game')
+  }, [blockchainGameId, clearGame])
   
   // Detect mobile screen size
   useEffect(() => {
@@ -156,26 +185,30 @@ export function BlockchainGameBoard({
       
       const loadedTiles: any[] = []
       
-      // Optimize: Only check positions where tiles are likely to be placed
-      // Start with center area and expand based on turn number
+      // IMPROVED: Check a broader area to ensure we don't miss tiles
+      // Use a larger search radius that's more likely to find all placed tiles
       const turnNumber = Number(currentGame.turnNumber) || 1
-      const maxRadius = Math.min(7, turnNumber + 2) // Expand search area gradually
+      const baseRadius = Math.max(5, Math.min(12, turnNumber + 3)) // Larger minimum, reasonable maximum
       const centerX = 7, centerY = 7
       
       const positionsToCheck: Array<{ x: number; y: number }> = []
       
-      // Add center area first (most likely to have tiles)
-      for (let radius = 0; radius <= maxRadius; radius++) {
-        for (let x = Math.max(0, centerX - radius); x <= Math.min(14, centerX + radius); x++) {
-          for (let y = Math.max(0, centerY - radius); y <= Math.min(14, centerY + radius); y++) {
-            if (Math.abs(x - centerX) === radius || Math.abs(y - centerY) === radius) {
-              positionsToCheck.push({ x, y })
-            }
-          }
+      // IMPROVED: Check ALL positions within the area, not just ring perimeters
+      for (let x = Math.max(0, centerX - baseRadius); x <= Math.min(14, centerX + baseRadius); x++) {
+        for (let y = Math.max(0, centerY - baseRadius); y <= Math.min(14, centerY + baseRadius); y++) {
+          positionsToCheck.push({ x, y })
         }
       }
       
-      console.log(`🔍 Checking ${positionsToCheck.length} positions (optimized from 225)`)
+      // Sort by distance from center to check likely positions first
+      positionsToCheck.sort((a, b) => {
+        const distanceA = Math.abs(a.x - centerX) + Math.abs(a.y - centerY)
+        const distanceB = Math.abs(b.x - centerX) + Math.abs(b.y - centerY)
+        return distanceA - distanceB
+      })
+      
+      console.log(`🔍 Checking ${positionsToCheck.length} positions (improved comprehensive search)`)
+      console.log(`  Search area: ${baseRadius} tiles from center (${centerX}, ${centerY})`)
       
       // Helper function to check tiles with RPC fallback
       const checkTileWithFallback = async (x: number, y: number) => {
@@ -228,8 +261,8 @@ export function BlockchainGameBoard({
         return null
       }
       
-      // Batch tile checks with RPC fallback
-      const batchSize = 5 // Smaller batches to reduce load
+      // Batch tile checks with RPC fallback - slightly larger batches since we're checking more positions
+      const batchSize = 8 // Increased from 5
       for (let i = 0; i < positionsToCheck.length; i += batchSize) {
         const batch = positionsToCheck.slice(i, i + batchSize)
         
@@ -244,9 +277,9 @@ export function BlockchainGameBoard({
           }
         })
         
-        // Longer delay between batches to be more gentle on RPCs
+        // Shorter delay between batches since we have more positions to check
         if (i + batchSize < positionsToCheck.length) {
-          await new Promise(resolve => setTimeout(resolve, 300))
+          await new Promise(resolve => setTimeout(resolve, 200))
         }
       }
       
@@ -340,6 +373,125 @@ export function BlockchainGameBoard({
       setIsSyncing(false)
     }
   }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+
+  // Full board scan function for debugging missing tiles
+  const handleFullBoardScan = useCallback(async () => {
+    if (!blockchainGameId || !contractAddress) return
+    
+    try {
+      setIsSyncing(true)
+      console.log('🔍 FULL BOARD SCAN - Checking all 225 positions...')
+      
+      const networkConfigs = {
+        'Base Mainnet': { 
+          chain: base, 
+          rpcUrls: [
+            'https://base-rpc.publicnode.com',
+            'https://1rpc.io/base',
+            'https://base.meowrpc.com',
+            'https://mainnet.base.org',
+            'https://base.blockpi.network/v1/rpc/public'
+          ]
+        },
+        'Hardhat Local': { 
+          chain: hardhat, 
+          rpcUrls: ['http://127.0.0.1:8545'] 
+        }
+      }
+      
+      const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
+      const loadedTiles: any[] = []
+      
+      // Check EVERY position on the 15x15 board
+      const allPositions = []
+      for (let x = 0; x < 15; x++) {
+        for (let y = 0; y < 15; y++) {
+          allPositions.push({ x, y })
+        }
+      }
+      
+      console.log(`🔍 Full scan: checking all ${allPositions.length} positions`)
+      
+      const checkTileWithFallback = async (x: number, y: number) => {
+        for (let rpcIndex = 0; rpcIndex < config.rpcUrls.length; rpcIndex++) {
+          try {
+            const publicClient = createPublicClient({
+              chain: config.chain,
+              transport: http(config.rpcUrls[rpcIndex], {
+                retryCount: 1,
+                retryDelay: 100,
+                timeout: 3000
+              })
+            })
+            
+            const tileResult = await publicClient.readContract({
+              address: contractAddress,
+              abi: FivesGameABI.abi,
+              functionName: 'getTileAt',
+              args: [blockchainGameId, x, y]
+            }) as [boolean, number, number]
+            
+            const [exists, tileNumber] = tileResult
+            
+            if (exists) {
+              return {
+                id: getNumberTileId(tileNumber),
+                uniqueId: `blockchain-${x}-${y}-${tileNumber}`,
+                location: { type: 'board', x, y },
+                number: tileNumber,
+                x,
+                y
+              }
+            }
+            return null
+            
+          } catch (error: any) {
+            if (error?.message?.includes('rate limit') || error?.message?.includes('429')) {
+              continue
+            }
+            continue
+          }
+        }
+        return null
+      }
+      
+      // Process in smaller batches for full scan
+      const batchSize = 5
+      for (let i = 0; i < allPositions.length; i += batchSize) {
+        const batch = allPositions.slice(i, i + batchSize)
+        
+        const batchPromises = batch.map(({ x, y }) => checkTileWithFallback(x, y))
+        const batchResults = await Promise.allSettled(batchPromises)
+        
+        batchResults.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value) {
+            loadedTiles.push(result.value)
+            const tile = result.value
+            console.log(`🎯 FULL SCAN found tile at (${tile.x}, ${tile.y}): ${tile.number}`)
+          }
+        })
+        
+        // Progress indicator
+        if (i % 25 === 0) {
+          const progress = Math.round((i / allPositions.length) * 100)
+          setGameMessage(`Full board scan: ${progress}% complete...`)
+        }
+        
+        // Delay between batches
+        await new Promise(resolve => setTimeout(resolve, 150))
+      }
+      
+      console.log(`✅ FULL SCAN completed: found ${loadedTiles.length} tiles`)
+      setPlacedTiles(loadedTiles)
+      setGameMessage(`Full board scan complete! Found ${loadedTiles.length} tiles.`)
+      
+    } catch (error) {
+      console.error('❌ Full board scan failed:', error)
+      setGameMessage(`Full scan failed: ${error.message}`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [blockchainGameId, contractAddress, networkName])
 
   // Update game message based on game state
   useEffect(() => {
@@ -733,7 +885,7 @@ export function BlockchainGameBoard({
 
   return (
     <div css={containerStyle}>
-      {/* Mobile Sidebar Toggle Button */}
+      {/* Mobile Sidebar Toggle Button - Moved up to avoid hand tray */}
       <button 
         css={toggleButtonStyle}
         onClick={toggleSidebar}
@@ -783,6 +935,13 @@ export function BlockchainGameBoard({
           </div>
         </div>
 
+        {/* Game Message - Moved to top of play area below header */}
+        {gameMessage && (
+          <div css={gameMessageStyle}>
+            {gameMessage}
+          </div>
+        )}
+
         {/* Board Area */}
         <div css={boardAreaStyle}>
           <div css={boardContainerStyle}>
@@ -830,39 +989,39 @@ export function BlockchainGameBoard({
               )}
             </div>
           </div>
-          
-          {/* Game Message */}
-          {gameMessage && (
-            <div css={statusStyle}>
-              {gameMessage}
-            </div>
-          )}
         </div>
       </div>
       
-      {/* Responsive Sidebar */}
+      {/* Persistent Hand Tray - Always visible at bottom */}
+      <div css={handTrayStyle}>
+        <div css={handTrayHeaderStyle}>
+          <span css={handTrayTitleStyle}>Your Hand ({handTiles.length} tiles)</span>
+          {selectedTile && (
+            <span css={selectedTileIndicatorStyle}>
+              Tile {selectedTile.number} selected
+            </span>
+          )}
+        </div>
+        <div css={handTrayGridStyle}>
+          {handTiles.map((tile) => (
+            <div 
+              key={tile.uniqueId}
+              css={[
+                handTrayTileStyle, 
+                selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
+              ]}
+              onClick={() => setSelectedTile(selectedTile?.uniqueId === tile.uniqueId ? null : tile)}
+            >
+              {tile.number}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Responsive Sidebar - Slides up over hand tray */}
       <div css={sidebarStyle(sidebarCollapsed)}>
         {!sidebarCollapsed && (
           <>
-            {/* Player Hand */}
-            <div css={sectionStyle}>
-              <h3 css={sectionTitleStyle}>Your Hand ({handTiles.length} tiles)</h3>
-              <div css={handGridStyle}>
-                {handTiles.map((tile) => (
-                  <div 
-                    key={tile.uniqueId}
-                    css={[
-                      handTileStyle, 
-                      selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
-                    ]}
-                    onClick={() => setSelectedTile(selectedTile?.uniqueId === tile.uniqueId ? null : tile)}
-                  >
-                    {tile.number}
-                  </div>
-                ))}
-              </div>
-            </div>
-
             {/* Staged Placements */}
             {stagedPlacements.length > 0 && (
               <div css={sectionStyle}>
@@ -889,6 +1048,19 @@ export function BlockchainGameBoard({
                   disabled={isSyncing || hookLoading}
                 >
                   {isSyncing ? 'Refreshing...' : '🔄 Manual Refresh'}
+                </button>
+                
+                {/* Full Scan Button for debugging missing tiles */}
+                <button 
+                  css={refreshButtonStyle}
+                  onClick={() => {
+                    console.log('🔍 User requested comprehensive tile scan...')
+                    handleManualRefresh()
+                  }}
+                  disabled={isSyncing || hookLoading}
+                  title="Comprehensive search for all placed tiles"
+                >
+                  {isSyncing ? 'Scanning...' : '🔍 Full Scan'}
                 </button>
                 
                 {stagedPlacements.length > 0 ? (
@@ -1073,11 +1245,11 @@ const toggleButtonStyle = css`
     transform: translateY(-50%) scale(1.1);
   }
   
-  /* Mobile positioning */
+  /* Mobile positioning - Moved up to avoid hand tray */
   @media (max-width: 768px) {
     position: fixed;
     top: auto;
-    bottom: 20px;
+    bottom: 160px; /* Moved up from 20px to 160px to clear hand tray */
     right: 20px;
     transform: none;
     width: 56px;
@@ -1165,10 +1337,11 @@ const mainAreaStyle = (collapsed: boolean) => css`
   flex-direction: column;
   transition: all 0.3s ease;
   
-  /* Mobile: always full width */
+  /* Mobile: always full width and account for hand tray */
   @media (max-width: 768px) {
     width: 100%;
-    height: ${collapsed ? '100vh' : 'calc(100vh - 280px)'};
+    height: calc(100vh - 120px); /* Always leave space for hand tray */
+    margin-bottom: ${collapsed ? '0' : '280px'}; /* Extra space when sidebar is open */
   }
 `
 
@@ -2017,6 +2190,96 @@ const examplesStyle = css`
   @media (max-width: 768px) {
     font-size: 9px;
     padding-left: 6px;
+  }
+`
+
+const gameMessageStyle = css`
+  text-align: center;
+  padding: 12px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 16px;
+  border-radius: 6px;
+  
+  @media (max-width: 768px) {
+    padding: 10px 16px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+`
+
+const handTrayStyle = css`
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  z-index: 999;
+`
+
+const handTrayHeaderStyle = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+`
+
+const handTrayTitleStyle = css`
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e5e5;
+`
+
+const selectedTileIndicatorStyle = css`
+  font-size: 12px;
+  color: #f59e0b;
+`
+
+const handTrayGridStyle = css`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 8px;
+`
+
+const handTrayTileStyle = css`
+  width: 40px;
+  height: 40px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 2px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #e5e5e5;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.3);
+    border-color: rgba(99, 102, 241, 0.6);
+    transform: translateY(-2px);
+  }
+  
+  @media (max-width: 768px) {
+    min-width: 44px;
+    height: 44px;
+    font-size: 16px;
+    
+    &:hover {
+      transform: scale(1.05);
+    }
   }
 `
 

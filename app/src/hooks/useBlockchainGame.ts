@@ -739,7 +739,14 @@ export function useBlockchainGame() {
     getTilePoolStatus, // New tile pool status function
     getAllGames,
     refreshGameData,
-    clearGame: () => {}, // Placeholder for compatibility
+    clearGame: () => {
+      console.log('🧹 Clearing useBlockchainGame state...')
+      setCurrentGame(null)
+      setPlayerInfo(null)
+      setError(null)
+      setLoading(false)
+      console.log('✅ useBlockchainGame state cleared')
+    },
     
     // Helper functions
     ensureConnection
