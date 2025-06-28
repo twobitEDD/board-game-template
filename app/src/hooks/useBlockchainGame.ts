@@ -417,21 +417,51 @@ export function useBlockchainGame() {
       console.log('🔄 Refreshing game data for game:', gameId)
       
       // Get game data with retry logic
-      const gameData = await readContractWithFallback({
+      const rawGameData = await readContractWithFallback({
         functionName: 'getGame',
         args: [gameId]
       })
       
       // Get player data with retry logic
-      const playerData = await readContractWithFallback({
+      const rawPlayerData = await readContractWithFallback({
         functionName: 'getPlayer',
         args: [gameId, primaryWallet.address]
       })
       
-      setCurrentGame(gameData)
-      setPlayerInfo(playerData)
+      console.log('📊 Raw game data from contract:', rawGameData)
+      console.log('👤 Raw player data from contract:', rawPlayerData)
       
-      console.log('✅ Game data refreshed:', { gameData, playerData })
+      // Transform game data into proper structure
+      const transformedGame: BlockchainGame = {
+        id: gameId,
+        state: rawGameData[0] || 0,
+        creator: rawGameData[1] || '',
+        maxPlayers: rawGameData[2] || 2,
+        currentPlayerIndex: rawGameData[3] || 0,
+        turnNumber: Number(rawGameData[4]) || 1,
+        playerAddresses: Array.isArray(rawGameData[7]) ? rawGameData[7] : [],
+        playerScores: Array.isArray(rawGameData[8]) ? rawGameData[8].map((score: any) => Number(score)) : [],
+        createdAt: Number(rawGameData[5]) || Math.floor(Date.now() / 1000),
+        allowIslands: rawGameData[6] !== undefined ? rawGameData[6] : false,
+        tilesRemaining: Number(rawGameData[9]) || 50
+      }
+      
+      // Transform player data into proper structure
+      const transformedPlayer = {
+        name: rawPlayerData[0] || 'Player',
+        score: Number(rawPlayerData[1]) || 0,
+        hand: Array.isArray(rawPlayerData[2]) ? rawPlayerData[2].map((tile: any) => Number(tile)) : [],
+        hasJoined: rawPlayerData[3] !== undefined ? rawPlayerData[3] : false,
+        lastMoveTime: Number(rawPlayerData[4]) || Math.floor(Date.now() / 1000)
+      }
+      
+      setCurrentGame(transformedGame)
+      setPlayerInfo(transformedPlayer)
+      
+      console.log('✅ Game data refreshed and transformed:', { 
+        transformedGame, 
+        transformedPlayer 
+      })
     } catch (error) {
       console.warn('⚠️ Failed to refresh game data:', error)
     }
