@@ -147,7 +147,7 @@ export function BlockchainGameBoard({
       const maxRadius = Math.min(7, currentGame.turnNumber + 2) // Expand search area gradually
       const centerX = 7, centerY = 7
       
-      const positionsToCheck = []
+      const positionsToCheck: Array<{ x: number; y: number }> = []
       
       // Add center area first (most likely to have tiles)
       for (let radius = 0; radius <= maxRadius; radius++) {

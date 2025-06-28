@@ -557,7 +557,7 @@ export function useBlockchainGame() {
   }, [readContractWithFallback])
 
   // Get all available games with enhanced retry
-  const getAllGames = useCallback(async () => {
+  const getAllGames = useCallback(async (): Promise<BlockchainGame[]> => {
     if (!primaryWallet?.address) {
       console.log('❌ No wallet connected')
       return []
@@ -571,7 +571,7 @@ export function useBlockchainGame() {
         functionName: 'nextGameId'
       })
       
-      const games = []
+      const games: BlockchainGame[] = []
       const totalGames = Number(nextGameId) - 1
 
       console.log('🔍 Total games to check:', totalGames)
@@ -579,14 +579,26 @@ export function useBlockchainGame() {
       // Batch game fetches to reduce RPC calls
       const batchSize = 5
       for (let i = 1; i <= totalGames; i += batchSize) {
-        const batchPromises = []
+        const batchPromises: Promise<BlockchainGame>[] = []
         
         for (let j = i; j < Math.min(i + batchSize, totalGames + 1); j++) {
           batchPromises.push(
             readContractWithFallback({
               functionName: 'getGame',
               args: [j]
-            }).then(gameData => ({ id: j, ...gameData }))
+            }).then((gameData: any) => ({ 
+              id: j, 
+              state: gameData[0],
+              creator: gameData[1],
+              maxPlayers: gameData[2],
+              currentPlayerIndex: gameData[3],
+              turnNumber: Number(gameData[4]),
+              playerAddresses: gameData[7] || [],
+              playerScores: (gameData[8] || []).map((score: any) => Number(score)),
+              createdAt: Number(gameData[5]),
+              allowIslands: gameData[6],
+              tilesRemaining: Number(gameData[9]) || 50
+            } as BlockchainGame))
           )
         }
         
