@@ -94,6 +94,30 @@ export function BlockchainGameBoard({
   const [lastKnownPlayerInfo, setLastKnownPlayerInfo] = useState<any>(null)
   const [showEndGameModal, setShowEndGameModal] = useState(false)
   const [hasShownEndGameModal, setHasShownEndGameModal] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
+  // Mobile responsive state
+  const [isMobile, setIsMobile] = useState(false)
+  
+  // Detect mobile screen size
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768)
+      // Auto-collapse sidebar on mobile by default
+      if (window.innerWidth <= 768) {
+        setSidebarCollapsed(true)
+      }
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+  
+  // Toggle sidebar visibility
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => !prev)
+  }, [])
 
   // Load board tiles from blockchain
   const loadBoardTiles = useCallback(async () => {
@@ -709,8 +733,17 @@ export function BlockchainGameBoard({
 
   return (
     <div css={containerStyle}>
+      {/* Mobile Sidebar Toggle Button */}
+      <button 
+        css={toggleButtonStyle}
+        onClick={toggleSidebar}
+        title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+      >
+        {sidebarCollapsed ? '📋' : '✕'}
+      </button>
+      
       {/* Main Game Area */}
-      <div css={mainAreaStyle(false)}>
+      <div css={mainAreaStyle(sidebarCollapsed)}>
         {/* Header */}
         <div css={headerStyle}>
           <div css={headerLeftStyle}>
@@ -739,36 +772,18 @@ export function BlockchainGameBoard({
                 <span css={tilesNumberStyle}>{handTiles.length}</span>
                 <span css={tilesLabelStyle}>Hand</span>
               </div>
-              <div css={separatorStyle}>•</div>
-              <div css={tilesInfoStyle}>
-                <span css={tilesNumberStyle}>{displayGame?.tilesRemaining || 50}</span>
-                <span css={tilesLabelStyle}>Pool</span>
-              </div>
-              <div css={separatorStyle}>•</div>
-              <div css={currentPlayerStyle}>
-                {displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.toLowerCase() === 
-                 primaryWallet?.address?.toLowerCase() 
-                  ? 'Your Turn' 
-                  : `Waiting for ${displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.slice(0, 6)}...${displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.slice(-4)}`}
-              </div>
             </div>
           </div>
-
+          
           <div css={headerRightStyle}>
-            {isSyncing && (
-              <div css={syncIndicatorStyle}>
-                🔄 Syncing...
-              </div>
-            )}
             <div css={gameStateIndicatorStyle}>
-              {(displayGame?.state || 0) === 0 ? '⏳ Setup' : 
-               (displayGame?.state || 0) === 1 ? '✅ Playing' : 
-               (displayGame?.state || 0) === 2 ? '🏁 Complete' : '❌ Cancelled'}
+              {displayGame?.state === 1 ? 'In Progress' : 'Setup'}
             </div>
+            {isSyncing && <div css={syncIndicatorStyle}>Syncing...</div>}
           </div>
         </div>
 
-        {/* Game Board */}
+        {/* Board Area */}
         <div css={boardAreaStyle}>
           <div css={boardContainerStyle}>
             <div css={gameboardStyle}>
@@ -825,174 +840,178 @@ export function BlockchainGameBoard({
         </div>
       </div>
       
-      {/* Sidebar */}
-      <div css={sidebarStyle(false)}>
-      {/* Player Hand */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Your Hand ({handTiles.length} tiles)</h3>
-          <div css={handGridStyle}>
-            {handTiles.map((tile) => (
-            <div 
-              key={tile.uniqueId}
-              css={[
-                handTileStyle, 
-                selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
-              ]}
-                onClick={() => setSelectedTile(selectedTile?.uniqueId === tile.uniqueId ? null : tile)}
-              >
-                {tile.number}
+      {/* Responsive Sidebar */}
+      <div css={sidebarStyle(sidebarCollapsed)}>
+        {!sidebarCollapsed && (
+          <>
+            {/* Player Hand */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Your Hand ({handTiles.length} tiles)</h3>
+              <div css={handGridStyle}>
+                {handTiles.map((tile) => (
+                  <div 
+                    key={tile.uniqueId}
+                    css={[
+                      handTileStyle, 
+                      selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
+                    ]}
+                    onClick={() => setSelectedTile(selectedTile?.uniqueId === tile.uniqueId ? null : tile)}
+                  >
+                    {tile.number}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-        {/* Staged Placements */}
-        {stagedPlacements.length > 0 && (
-          <div css={sectionStyle}>
-            <h3 css={sectionTitleStyle}>Staged Tiles ({stagedPlacements.length})</h3>
-            <div css={stagedListStyle}>
-              {stagedPlacements.map((placement, index) => (
-                <div key={index} css={stagedItemStyle}>
-                  <span css={stagedTileNumberStyle}>{placement.number}</span>
-                  <span css={stagedPositionStyle}>({placement.x}, {placement.y})</span>
+            {/* Staged Placements */}
+            {stagedPlacements.length > 0 && (
+              <div css={sectionStyle}>
+                <h3 css={sectionTitleStyle}>Staged Tiles ({stagedPlacements.length})</h3>
+                <div css={stagedListStyle}>
+                  {stagedPlacements.map((placement, index) => (
+                    <div key={index} css={stagedItemStyle}>
+                      <span css={stagedTileNumberStyle}>{placement.number}</span>
+                      <span css={stagedPositionStyle}>({placement.x}, {placement.y})</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Game Controls */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Actions</h3>
-          <div css={controlsStyle}>
-            {/* Manual Refresh Button (always available) */}
-            <button 
-              css={refreshButtonStyle}
-              onClick={handleManualRefresh}
-              disabled={isSyncing || hookLoading}
-            >
-              {isSyncing ? 'Refreshing...' : '🔄 Manual Refresh'}
-            </button>
-            
-            {stagedPlacements.length > 0 ? (
-              <>
-                <button 
-                  css={confirmButtonStyle}
-                  onClick={handleConfirmTurn}
-                  disabled={isConfirming || hookLoading}
-                >
-                  {isConfirming ? 'Confirming...' : `Confirm Turn (${stagedPlacements.length} tiles)`}
-                </button>
-                <button 
-                  css={clearButtonStyle}
-                  onClick={handleClearStaged}
-                  disabled={isConfirming || hookLoading}
-                >
-                  Clear Staged
-                </button>
-              </>
-            ) : (
-              <button 
-                css={skipButtonStyle}
-                onClick={handleSkipTurn}
-                disabled={hookLoading}
-              >
-                {hookLoading ? 'Processing...' : 'Skip Turn (Draw Tiles)'}
-              </button>
+              </div>
             )}
-          </div>
-        </div>
 
-        {/* Tile Pool Status */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Tile Pool ({displayGame.tilesRemaining} remaining)</h3>
-          <div css={tilePoolStyle}>
-            {tilePoolStatus.map((count, number) => (
-              <div key={number} css={poolItemStyle}>
-                <span css={poolNumberStyle}>{number}</span>
-                <span css={poolCountStyle}>{count}</span>
+            {/* Game Controls */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Actions</h3>
+              <div css={controlsStyle}>
+                {/* Manual Refresh Button (always available) */}
+                <button 
+                  css={refreshButtonStyle}
+                  onClick={handleManualRefresh}
+                  disabled={isSyncing || hookLoading}
+                >
+                  {isSyncing ? 'Refreshing...' : '🔄 Manual Refresh'}
+                </button>
+                
+                {stagedPlacements.length > 0 ? (
+                  <>
+                    <button 
+                      css={confirmButtonStyle}
+                      onClick={handleConfirmTurn}
+                      disabled={isConfirming || hookLoading}
+                    >
+                      {isConfirming ? 'Confirming...' : `Confirm Turn (${stagedPlacements.length} tiles)`}
+                    </button>
+                    <button 
+                      css={clearButtonStyle}
+                      onClick={handleClearStaged}
+                      disabled={isConfirming || hookLoading}
+                    >
+                      Clear Staged
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    css={skipButtonStyle}
+                    onClick={handleSkipTurn}
+                    disabled={hookLoading}
+                  >
+                    {hookLoading ? 'Processing...' : 'Skip Turn (Draw Tiles)'}
+                  </button>
+                )}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Game Rules */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Game Rules</h3>
-          <div css={rulesStyle}>
-            <div css={ruleItemStyle}>
-              <strong>Placement:</strong> Tiles must be adjacent to existing tiles
-            </div>
-            <div css={ruleItemStyle}>
-              <strong>Math Rule:</strong> Adjacent numbers must sum to 5 OR differ by 5
-            </div>
-            <div css={ruleItemStyle}>
-              <strong>Examples:</strong>
-              <div css={examplesStyle}>
-                <span>Sum: 2+3=5, 1+4=5, 0+5=5</span>
-                <span>Diff: 9-4=5, 8-3=5, 7-2=5</span>
+            {/* Tile Pool Status */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Tile Pool ({displayGame?.tilesRemaining || 0} remaining)</h3>
+              <div css={tilePoolStyle}>
+                {tilePoolStatus.map((count, number) => (
+                  <div key={number} css={poolItemStyle}>
+                    <span css={poolNumberStyle}>{number}</span>
+                    <span css={poolCountStyle}>{count}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Game Info */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Game Info</h3>
-          <div css={gameInfoStyle}>
-            <div css={infoItemStyle}>
-              <span>Players:</span>
-              <span>{displayGame.playerAddresses.length}/{displayGame.maxPlayers}</span>
+            {/* Game Rules */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Game Rules</h3>
+              <div css={rulesStyle}>
+                <div css={ruleItemStyle}>
+                  <strong>Placement:</strong> Tiles must be adjacent to existing tiles
+                </div>
+                <div css={ruleItemStyle}>
+                  <strong>Math Rule:</strong> Adjacent numbers must sum to 5 OR differ by 5
+                </div>
+                <div css={ruleItemStyle}>
+                  <strong>Examples:</strong>
+                  <div css={examplesStyle}>
+                    <span>Sum: 2+3=5, 1+4=5, 0+5=5</span>
+                    <span>Diff: 9-4=5, 8-3=5, 7-2=5</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div css={infoItemStyle}>
-              <span>Turn:</span>
-              <span>{displayGame.turnNumber}</span>
-            </div>
-            <div css={infoItemStyle}>
-              <span>Score:</span>
-              <span>{displayPlayerInfo.score}</span>
-            </div>
-            <div css={infoItemStyle}>
-              <span>Status:</span>
-              <span>{displayGame.state === 1 ? 'Playing' : 'Waiting'}</span>
-            </div>
-          </div>
-        </div>
 
-        {/* Turn Debug (always visible) */}
-        <div css={sectionStyle}>
-          <h3 css={sectionTitleStyle}>Turn Status</h3>
-          <div css={debugContentStyle}>
-            <div css={debugItemStyle}>
-              Current Player Index: <strong>{displayGame.currentPlayerIndex}</strong>
+            {/* Game Info */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Game Info</h3>
+              <div css={gameInfoStyle}>
+                <div css={infoItemStyle}>
+                  <span>Players:</span>
+                  <span>{displayGame?.playerAddresses?.length || 0}/{displayGame?.maxPlayers || 2}</span>
+                </div>
+                <div css={infoItemStyle}>
+                  <span>Turn:</span>
+                  <span>{displayGame?.turnNumber || 1}</span>
+                </div>
+                <div css={infoItemStyle}>
+                  <span>Score:</span>
+                  <span>{displayPlayerInfo?.score || 0}</span>
+                </div>
+                <div css={infoItemStyle}>
+                  <span>Status:</span>
+                  <span>{displayGame?.state === 1 ? 'Playing' : 'Waiting'}</span>
+                </div>
+              </div>
             </div>
-            <div css={debugItemStyle}>
-              Current Player: <strong>{displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(0, 8)}...</strong>
-            </div>
-            <div css={debugItemStyle}>
-              Your Address: <strong>{primaryWallet?.address?.slice(0, 8)}...</strong>
-            </div>
-            <div css={debugItemStyle}>
-              Is Your Turn: <strong style={{color: displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? '#10b981' : '#f87171'}}>
-                {displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? 'YES' : 'NO'}
-              </strong>
-            </div>
-          </div>
-        </div>
 
-        {/* Debug Info (compact) */}
-        <div css={sectionStyle}>
-          <details css={debugSectionStyle}>
-            <summary css={debugTitleStyle}>Debug Info</summary>
-            <div css={debugContentStyle}>
-              <div css={debugItemStyle}>Game ID: {blockchainGameId}</div>
-              <div css={debugItemStyle}>State: {displayGame.state}</div>
-              <div css={debugItemStyle}>Current Player: {displayGame.currentPlayerIndex}</div>
-              <div css={debugItemStyle}>Tiles in Pool: {displayGame.tilesRemaining}</div>
-              <div css={debugItemStyle}>Hand Size: {handTiles.length}</div>
+            {/* Turn Debug (always visible) */}
+            <div css={sectionStyle}>
+              <h3 css={sectionTitleStyle}>Turn Status</h3>
+              <div css={debugContentStyle}>
+                <div css={debugItemStyle}>
+                  Current Player Index: <strong>{displayGame?.currentPlayerIndex || 0}</strong>
+                </div>
+                <div css={debugItemStyle}>
+                  Current Player: <strong>{displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.slice(0, 8)}...</strong>
+                </div>
+                <div css={debugItemStyle}>
+                  Your Address: <strong>{primaryWallet?.address?.slice(0, 8)}...</strong>
+                </div>
+                <div css={debugItemStyle}>
+                  Is Your Turn: <strong style={{color: displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? '#10b981' : '#f87171'}}>
+                    {displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? 'YES' : 'NO'}
+                  </strong>
+                </div>
+              </div>
             </div>
-          </details>
-        </div>
+
+            {/* Debug Info (compact) */}
+            <div css={sectionStyle}>
+              <details css={debugSectionStyle}>
+                <summary css={debugTitleStyle}>Debug Info</summary>
+                <div css={debugContentStyle}>
+                  <div css={debugItemStyle}>Game ID: {blockchainGameId}</div>
+                  <div css={debugItemStyle}>State: {displayGame?.state || 0}</div>
+                  <div css={debugItemStyle}>Current Player: {displayGame?.currentPlayerIndex || 0}</div>
+                  <div css={debugItemStyle}>Tiles in Pool: {displayGame?.tilesRemaining || 0}</div>
+                  <div css={debugItemStyle}>Hand Size: {handTiles.length}</div>
+                </div>
+              </details>
+            </div>
+          </>
+        )}
       </div>
       
       {/* Endgame Modal */}
@@ -1018,9 +1037,57 @@ export function BlockchainGameBoard({
 const containerStyle = css`
   display: flex;
   height: 100vh;
-  background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
-  color: #e5e5e5;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+  color: white;
+  overflow: hidden;
+  position: relative;
+  
+  /* Mobile-first responsive layout */
+  @media (max-width: 768px) {
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+`
+
+const toggleButtonStyle = css`
+  position: fixed;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  z-index: 1000;
+  background: rgba(99, 102, 241, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  color: white;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+
+  &:hover {
+    background: rgba(99, 102, 241, 1);
+    transform: translateY(-50%) scale(1.1);
+  }
+  
+  /* Mobile positioning */
+  @media (max-width: 768px) {
+    position: fixed;
+    top: auto;
+    bottom: 20px;
+    right: 20px;
+    transform: none;
+    width: 56px;
+    height: 56px;
+    font-size: 20px;
+    
+    &:hover {
+      transform: scale(1.1);
+    }
+  }
 `
 
 const loadingStyle = css`
@@ -1072,10 +1139,10 @@ const errorStyle = css`
 `
 
 const backButtonStyle = css`
-  background: #4f46e5;
+  background: #6b7280;
   color: white;
   border: none;
-  padding: 8px 16px;
+  padding: 8px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
@@ -1084,6 +1151,12 @@ const backButtonStyle = css`
   &:hover {
     background: #4338ca;
   }
+  
+  @media (max-width: 768px) {
+    padding: 10px 14px;
+    font-size: 16px;
+    min-height: 44px;
+  }
 `
 
 const mainAreaStyle = (collapsed: boolean) => css`
@@ -1091,6 +1164,12 @@ const mainAreaStyle = (collapsed: boolean) => css`
   display: flex;
   flex-direction: column;
   transition: all 0.3s ease;
+  
+  /* Mobile: always full width */
+  @media (max-width: 768px) {
+    width: 100%;
+    height: ${collapsed ? '100vh' : 'calc(100vh - 280px)'};
+  }
 `
 
 const headerStyle = css`
@@ -1101,12 +1180,36 @@ const headerStyle = css`
   background: rgba(0, 0, 0, 0.3);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
+  min-height: 70px;
+  
+  /* Mobile responsive header */
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: auto;
+  }
+  
+  @media (max-width: 480px) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
 `
 
 const headerLeftStyle = css`
   display: flex;
   align-items: center;
   gap: 16px;
+  
+  @media (max-width: 768px) {
+    gap: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    width: 100%;
+    justify-content: space-between;
+  }
 `
 
 const titleStyle = css`
@@ -1114,6 +1217,14 @@ const titleStyle = css`
   font-weight: 700;
   color: #e5e5e5;
   margin: 0;
+  
+  @media (max-width: 768px) {
+    font-size: 18px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 16px;
+  }
 `
 
 const gameModeStyle = css`
@@ -1122,12 +1233,28 @@ const gameModeStyle = css`
   background: rgba(99, 102, 241, 0.2);
   padding: 4px 8px;
   border-radius: 4px;
+  
+  @media (max-width: 768px) {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
 `
 
 const headerCenterStyle = css`
   display: flex;
   align-items: center;
   gap: 16px;
+  
+  @media (max-width: 768px) {
+    gap: 12px;
+    order: 2;
+  }
+  
+  @media (max-width: 480px) {
+    width: 100%;
+    justify-content: center;
+    order: 3;
+  }
 `
 
 const turnInfoStyle = css`
@@ -1214,6 +1341,14 @@ const headerRightStyle = css`
   display: flex;
   align-items: center;
   gap: 16px;
+  
+  @media (max-width: 768px) {
+    gap: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    order: 2;
+  }
 `
 
 const gameStateIndicatorStyle = css`
@@ -1222,6 +1357,11 @@ const gameStateIndicatorStyle = css`
   background: rgba(16, 185, 129, 0.2);
   padding: 4px 8px;
   border-radius: 4px;
+  
+  @media (max-width: 768px) {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
 `
 
 const syncIndicatorStyle = css`
@@ -1237,12 +1377,29 @@ const syncIndicatorStyle = css`
     from { opacity: 0.7; }
     to { opacity: 1; }
   }
+  
+  @media (max-width: 768px) {
+    font-size: 10px;
+    margin-right: 6px;
+  }
 `
 
 const boardAreaStyle = css`
   flex: 1;
   padding: 20px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  @media (max-width: 768px) {
+    padding: 12px;
+    overflow: auto;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 8px;
+  }
 `
 
 const sidebarStyle = (collapsed: boolean) => css`
@@ -1253,6 +1410,25 @@ const sidebarStyle = (collapsed: boolean) => css`
   overflow-y: auto;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
+  
+  /* Mobile: bottom sheet style */
+  @media (max-width: 768px) {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: ${collapsed ? '0' : '280px'};
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px 16px 0 0;
+    padding: ${collapsed ? '0' : '16px'};
+    z-index: 999;
+    transform: translateY(${collapsed ? '100%' : '0'});
+    overflow: ${collapsed ? 'hidden' : 'auto'};
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(20px);
+  }
 `
 
 const sectionStyle = css`
@@ -1260,6 +1436,10 @@ const sectionStyle = css`
   
   &:last-child {
     margin-bottom: 0;
+  }
+  
+  @media (max-width: 768px) {
+    margin-bottom: 16px;
   }
 `
 
@@ -1270,12 +1450,31 @@ const sectionTitleStyle = css`
   margin: 0 0 12px 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  
+  @media (max-width: 768px) {
+    font-size: 13px;
+    margin: 0 0 8px 0;
+  }
 `
 
 const handGridStyle = css`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 8px;
+  
+  @media (max-width: 768px) {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    
+    /* Hide scrollbar but keep functionality */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
 `
 
 const handTileStyle = css`
@@ -1297,6 +1496,16 @@ const handTileStyle = css`
     border-color: rgba(99, 102, 241, 0.6);
     transform: translateY(-2px);
   }
+  
+  @media (max-width: 768px) {
+    min-width: 44px;
+    height: 44px;
+    font-size: 16px;
+    
+    &:hover {
+      transform: scale(1.05);
+    }
+  }
 `
 
 const selectedTileStyle = css`
@@ -1309,6 +1518,12 @@ const controlsStyle = css`
   display: flex;
   flex-direction: column;
   gap: 8px;
+  
+  @media (max-width: 768px) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
 `
 
 const skipButtonStyle = css`
@@ -1329,6 +1544,13 @@ const skipButtonStyle = css`
   &:disabled {
     background: #6b7280;
     cursor: not-allowed;
+  }
+  
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+    font-size: 14px;
+    flex: 1;
+    min-height: 44px;
   }
 `
 
@@ -1432,6 +1654,28 @@ const gameboardStyle = css`
   backdrop-filter: blur(5px);
   width: fit-content;
   height: fit-content;
+  
+  /* Responsive board sizing */
+  @media (max-width: 768px) {
+    grid-template-columns: repeat(15, 24px);
+    grid-template-rows: repeat(15, 24px);
+    gap: 1px;
+    padding: 3px;
+    border-radius: 8px;
+  }
+  
+  @media (max-width: 480px) {
+    grid-template-columns: repeat(15, 20px);
+    grid-template-rows: repeat(15, 20px);
+    gap: 1px;
+    padding: 2px;
+    border-radius: 6px;
+  }
+  
+  @media (max-width: 390px) {
+    grid-template-columns: repeat(15, 18px);
+    grid-template-rows: repeat(15, 18px);
+  }
 `
 
 const boardSpaceStyle = css`
@@ -1448,6 +1692,28 @@ const boardSpaceStyle = css`
   &:hover {
     background: rgba(99, 102, 241, 0.2);
     transform: scale(1.05);
+  }
+  
+  /* Responsive tile sizing */
+  @media (max-width: 768px) {
+    width: 24px;
+    height: 24px;
+    border-radius: 3px;
+    
+    &:hover {
+      transform: scale(1.1);
+    }
+  }
+  
+  @media (max-width: 480px) {
+    width: 20px;
+    height: 20px;
+    border-radius: 2px;
+  }
+  
+  @media (max-width: 390px) {
+    width: 18px;
+    height: 18px;
   }
 `
 
@@ -1468,6 +1734,30 @@ const emptySpaceStyle = css`
     border-color: rgba(99, 102, 241, 0.6);
     background: rgba(99, 102, 241, 0.1);
   }
+  
+  @media (max-width: 768px) {
+    font-size: 1rem;
+    border-width: 1px;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 0.8rem;
+  }
+  
+  @media (max-width: 390px) {
+    font-size: 0.7rem;
+  }
+`
+
+const validPositionStyle = css`
+  border-color: rgba(34, 197, 94, 0.6) !important;
+  background: rgba(34, 197, 94, 0.1) !important;
+  color: #22c55e !important;
+  
+  &:hover {
+    border-color: rgba(34, 197, 94, 0.8) !important;
+    background: rgba(34, 197, 94, 0.2) !important;
+  }
 `
 
 const placedTileStyle = css`
@@ -1480,6 +1770,15 @@ const placedTileStyle = css`
   align-items: center;
   justify-content: center;
   box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+  
+  @media (max-width: 768px) {
+    border-width: 1px;
+    border-radius: 3px;
+  }
+  
+  @media (max-width: 480px) {
+    border-radius: 2px;
+  }
 `
 
 const tileNumberStyle = css`
@@ -1487,6 +1786,18 @@ const tileNumberStyle = css`
   font-weight: bold;
   font-size: 1rem;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  
+  @media (max-width: 768px) {
+    font-size: 0.8rem;
+  }
+  
+  @media (max-width: 480px) {
+    font-size: 0.7rem;
+  }
+  
+  @media (max-width: 390px) {
+    font-size: 0.6rem;
+  }
 `
 
 const statusStyle = css`
@@ -1499,6 +1810,17 @@ const statusStyle = css`
   font-weight: 500;
   margin-top: 16px;
   border-radius: 6px;
+  
+  @media (max-width: 768px) {
+    padding: 10px 16px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
 `
 
 // Staged tile styles
@@ -1526,6 +1848,11 @@ const stagedListStyle = css`
   gap: 4px;
   max-height: 120px;
   overflow-y: auto;
+  
+  @media (max-width: 768px) {
+    max-height: 100px;
+    gap: 3px;
+  }
 `
 
 const stagedItemStyle = css`
@@ -1537,6 +1864,11 @@ const stagedItemStyle = css`
   border: 1px solid rgba(251, 191, 36, 0.3);
   border-radius: 4px;
   font-size: 12px;
+  
+  @media (max-width: 768px) {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
 `
 
 const stagedTileNumberStyle = css`
@@ -1550,12 +1882,22 @@ const stagedTileNumberStyle = css`
   justify-content: center;
   font-size: 11px;
   font-weight: 600;
+  
+  @media (max-width: 768px) {
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+  }
 `
 
 const stagedPositionStyle = css`
   color: #a1a1aa;
   font-size: 11px;
   font-family: 'Monaco', 'Menlo', monospace;
+  
+  @media (max-width: 768px) {
+    font-size: 10px;
+  }
 `
 
 const confirmButtonStyle = css`
@@ -1576,6 +1918,13 @@ const confirmButtonStyle = css`
   &:disabled {
     background: #6b7280;
     cursor: not-allowed;
+  }
+  
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+    font-size: 14px;
+    flex: 1;
+    min-height: 44px;
   }
 `
 
@@ -1598,43 +1947,13 @@ const clearButtonStyle = css`
     background: #374151;
     cursor: not-allowed;
   }
-`
-
-const validPositionStyle = css`
-  border-color: rgba(16, 185, 129, 0.6) !important;
-  background: rgba(16, 185, 129, 0.1) !important;
   
-  &:hover {
-    border-color: rgba(16, 185, 129, 0.8) !important;
-    background: rgba(16, 185, 129, 0.2) !important;
-    transform: scale(1.05);
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+    font-size: 14px;
+    flex: 1;
+    min-height: 44px;
   }
-`
-
-const rulesStyle = css`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 11px;
-  color: #a1a1aa;
-`
-
-const ruleItemStyle = css`
-  line-height: 1.4;
-  
-  strong {
-    color: #e5e5e5;
-  }
-`
-
-const examplesStyle = css`
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
-  padding-left: 8px;
-  font-size: 10px;
-  color: #6b7280;
 `
 
 const refreshButtonStyle = css`
@@ -1655,6 +1974,49 @@ const refreshButtonStyle = css`
   &:disabled {
     background: #6b7280;
     cursor: not-allowed;
+  }
+  
+  @media (max-width: 768px) {
+    padding: 12px 16px;
+    font-size: 14px;
+    flex: 1;
+    min-height: 44px;
+  }
+`
+
+const rulesStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  color: #a1a1aa;
+  
+  @media (max-width: 768px) {
+    gap: 6px;
+    font-size: 10px;
+  }
+`
+
+const ruleItemStyle = css`
+  line-height: 1.4;
+  
+  strong {
+    color: #e5e5e5;
+  }
+`
+
+const examplesStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: 8px;
+  font-size: 10px;
+  color: #6b7280;
+  
+  @media (max-width: 768px) {
+    font-size: 9px;
+    padding-left: 6px;
   }
 `
 

@@ -339,10 +339,10 @@ export function useBlockchainGame() {
 
         newGame = {
           id: gameId,
-          state: gameData[0] || 0,
+          state: Number(gameData[0]) || 0,
           creator: gameData[1] || primaryWallet!.address,
-          maxPlayers: gameData[2] || maxPlayers,
-          currentPlayerIndex: gameData[3] || 0,
+          maxPlayers: Number(gameData[2]) || maxPlayers,
+          currentPlayerIndex: Number(gameData[3]) || 0,
           turnNumber: Number(gameData[4]) || 1,
           playerAddresses: Array.isArray(gameData[7]) ? gameData[7] : [primaryWallet!.address],
           playerScores: Array.isArray(gameData[8]) ? gameData[8].map((score: bigint) => Number(score)) : [0],
@@ -633,14 +633,14 @@ export function useBlockchainGame() {
               args: [j]
             }).then((gameData: any) => ({ 
               id: j, 
-              state: gameData[0],
+              state: Number(gameData[0]) || 0,
               creator: gameData[1],
-              maxPlayers: gameData[2],
-              currentPlayerIndex: gameData[3],
-              turnNumber: Number(gameData[4]),
+              maxPlayers: Number(gameData[2]) || 2,
+              currentPlayerIndex: Number(gameData[3]) || 0,
+              turnNumber: Number(gameData[4]) || 1,
               playerAddresses: gameData[7] || [],
               playerScores: (gameData[8] || []).map((score: any) => Number(score)),
-              createdAt: Number(gameData[5]),
+              createdAt: Number(gameData[5]) || Math.floor(Date.now() / 1000),
               allowIslands: gameData[6],
               tilesRemaining: Number(gameData[9]) || 50
             } as BlockchainGame))
