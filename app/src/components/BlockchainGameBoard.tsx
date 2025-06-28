@@ -229,6 +229,9 @@ export function BlockchainGameBoard({
         setLoading(true)
         
         console.log('🔄 Manual load on mount...')
+        console.log('  blockchainGameId:', blockchainGameId)
+        console.log('  currentGame:', currentGame)
+        console.log('  playerInfo:', playerInfo)
         
         await refreshGameData(blockchainGameId)
         
@@ -240,7 +243,9 @@ export function BlockchainGameBoard({
         await loadBoardTiles()
         
         setError(null)
-        setIsInitialLoad(false)
+        setIsInitialLoad(false) // Set this to false after first successful load
+        
+        console.log('✅ Initial load completed successfully')
         
       } catch (error) {
         console.error('❌ Failed to load game data:', error)
@@ -255,6 +260,20 @@ export function BlockchainGameBoard({
       loadGameData()
     }
   }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+
+  // Debug logging to track state changes
+  useEffect(() => {
+    console.log('🔍 BlockchainGameBoard state update:', {
+      loading,
+      isInitialLoad,
+      currentGame: !!currentGame,
+      playerInfo: !!playerInfo,
+      lastKnownGame: !!lastKnownGame,
+      lastKnownPlayerInfo: !!lastKnownPlayerInfo,
+      displayGame: !!(currentGame || lastKnownGame),
+      displayPlayerInfo: !!(playerInfo || lastKnownPlayerInfo)
+    })
+  }, [loading, isInitialLoad, currentGame, playerInfo, lastKnownGame, lastKnownPlayerInfo])
 
   // Manual refresh function for user-triggered updates
   const handleManualRefresh = useCallback(async () => {
@@ -643,8 +662,9 @@ export function BlockchainGameBoard({
     )
   }
 
-  // Only show loading during initial load when we haven't loaded any data yet
-  if (loading || (!currentGame && !playerInfo && isInitialLoad)) {
+  // Show loading only during initial load when we have no data at all
+  if (isInitialLoad && loading && !currentGame && !playerInfo && !lastKnownGame && !lastKnownPlayerInfo) {
+    console.log('📊 Showing loading screen - no data available yet')
     return (
       <div css={loadingStyle}>
         <div css={spinnerStyle}></div>
@@ -653,16 +673,24 @@ export function BlockchainGameBoard({
     )
   }
 
-  // Only show loading if we have never successfully loaded any data
-  if (!displayGame || !displayPlayerInfo) {
-    console.log('⚠️ No game data available yet, showing loading...')
+  // Show loading if we're still in initial load and have no display data
+  if (isInitialLoad && (!displayGame || !displayPlayerInfo)) {
+    console.log('📊 Showing loading screen - waiting for initial game data...')
+    console.log('  displayGame:', !!displayGame)
+    console.log('  displayPlayerInfo:', !!displayPlayerInfo)
     return (
       <div css={loadingStyle}>
         <div css={spinnerStyle}></div>
-        <p>Loading blockchain game...</p>
+        <p>Loading blockchain game data...</p>
       </div>
     )
   }
+
+  // At this point, show the game board even if some data is missing
+  // The manual refresh button will allow users to reload if needed
+  console.log('✅ Rendering game board with available data')
+  console.log('  displayGame:', displayGame?.id)
+  console.log('  displayPlayerInfo:', displayPlayerInfo?.name)
 
   return (
     <div css={containerStyle}>
@@ -683,12 +711,12 @@ export function BlockchainGameBoard({
           <div css={headerCenterStyle}>
             <div css={turnInfoStyle}>
               <span css={turnLabelStyle}>Turn</span>
-              <span css={turnNumberStyle}>{displayGame.turnNumber}</span>
+              <span css={turnNumberStyle}>{displayGame?.turnNumber || 1}</span>
             </div>
             <div css={separatorStyle}>•</div>
             <div css={infoRowStyle}>
               <div css={scoreInfoStyle}>
-                <span css={scoreNumberStyle}>{displayPlayerInfo.score}</span>
+                <span css={scoreNumberStyle}>{displayPlayerInfo?.score || 0}</span>
                 <span css={scoreLabelStyle}>Points</span>
               </div>
               <div css={separatorStyle}>•</div>
@@ -698,15 +726,15 @@ export function BlockchainGameBoard({
               </div>
               <div css={separatorStyle}>•</div>
               <div css={tilesInfoStyle}>
-                <span css={tilesNumberStyle}>{displayGame.tilesRemaining}</span>
+                <span css={tilesNumberStyle}>{displayGame?.tilesRemaining || 50}</span>
                 <span css={tilesLabelStyle}>Pool</span>
               </div>
               <div css={separatorStyle}>•</div>
               <div css={currentPlayerStyle}>
-                {displayGame.playerAddresses[displayGame.currentPlayerIndex]?.toLowerCase() === 
+                {displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.toLowerCase() === 
                  primaryWallet?.address?.toLowerCase() 
                   ? 'Your Turn' 
-                  : `Waiting for ${displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(0, 6)}...${displayGame.playerAddresses[displayGame.currentPlayerIndex]?.slice(-4)}`}
+                  : `Waiting for ${displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.slice(0, 6)}...${displayGame?.playerAddresses?.[displayGame.currentPlayerIndex]?.slice(-4)}`}
               </div>
             </div>
           </div>
@@ -718,9 +746,9 @@ export function BlockchainGameBoard({
               </div>
             )}
             <div css={gameStateIndicatorStyle}>
-              {displayGame.state === 0 ? '⏳ Setup' : 
-               displayGame.state === 1 ? '✅ Playing' : 
-               displayGame.state === 2 ? '🏁 Complete' : '❌ Cancelled'}
+              {(displayGame?.state || 0) === 0 ? '⏳ Setup' : 
+               (displayGame?.state || 0) === 1 ? '✅ Playing' : 
+               (displayGame?.state || 0) === 2 ? '🏁 Complete' : '❌ Cancelled'}
             </div>
           </div>
         </div>
