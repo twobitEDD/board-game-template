@@ -18,7 +18,7 @@ import { BlockchainEndGameModal } from './BlockchainEndGameModal'
 // Create public client for reading contract data
 const getPublicClient = (networkName: string) => {
   const networkConfigs = {
-    'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
+    'Base Mainnet': { chain: base, rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/demo' },
     'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
   }
   
@@ -79,72 +79,6 @@ export function BlockchainGameBoard({
   const [showEndGameModal, setShowEndGameModal] = useState(false)
   const [hasShownEndGameModal, setHasShownEndGameModal] = useState(false)
 
-  // Load initial blockchain state and set up polling
-  useEffect(() => {
-    const loadGameData = async (isBackground = false) => {
-      try {
-        // Only show loading spinner for initial load, not background polls
-        if (!isBackground && isInitialLoad) {
-          setLoading(true)
-        }
-        
-        // Show sync indicator for background updates
-        if (isBackground) {
-          setIsSyncing(true)
-        }
-        
-        console.log(isBackground ? '📡 Background sync...' : '🔄 Initial load...')
-        
-        await refreshGameData(blockchainGameId)
-        
-        // Load tile pool status
-        const poolStatus = await getTilePoolStatus(blockchainGameId)
-        setTilePoolStatus(poolStatus.remainingCounts)
-        
-        // Load placed tiles from board
-        await loadBoardTiles()
-        
-        setError(null)
-        
-        // Mark initial load as complete
-        if (isInitialLoad) {
-          setIsInitialLoad(false)
-        }
-        
-      } catch (error) {
-        console.error(isBackground ? '❌ Background sync failed:' : '❌ Failed to load game data:', error)
-        if (!isBackground) {
-          setError(`Error loading game: ${error.message}`)
-        }
-        
-        // Clear sync indicator if there's an error in background sync
-        if (isBackground) {
-          setIsSyncing(false)
-        }
-      } finally {
-        // Only clear loading for initial load
-        if (!isBackground && loading) {
-          setLoading(false)
-        }
-        
-        // Clear sync indicator for background updates (with small delay to avoid flashing)
-        if (isBackground) {
-          setTimeout(() => setIsSyncing(false), 500)
-        }
-      }
-    }
-    
-    if (blockchainGameId) {
-      // Initial load
-      loadGameData(false)
-      
-      // Set up polling for background updates every 5 seconds
-      const pollInterval = setInterval(() => loadGameData(true), 5000)
-      
-      return () => clearInterval(pollInterval)
-    }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus, isInitialLoad, loading])
-
   // Load board tiles from blockchain
   const loadBoardTiles = useCallback(async () => {
     try {
@@ -157,7 +91,7 @@ export function BlockchainGameBoard({
       
       // Create network-aware public client
       const networkConfigs = {
-        'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
+        'Base Mainnet': { chain: base, rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/demo' },
         'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
       }
       
@@ -218,27 +152,66 @@ export function BlockchainGameBoard({
     }
   }, [blockchainGameId, currentGame, contractAddress, networkName])
 
-  // Auto-reload board tiles when game state changes or when joining a game
+  // Load initial blockchain state - MANUAL REFRESH ONLY (no automatic polling)
   useEffect(() => {
-    if (currentGame && currentGame.state === 1) { // Game is in progress
-      console.log('🔄 Game state changed to In Progress - reloading board tiles...')
-      console.log('  Current turn number:', currentGame.turnNumber)
-      console.log('  Current player index:', currentGame.currentPlayerIndex)
-      loadBoardTiles()
-    }
-  }, [currentGame?.state, currentGame?.turnNumber, loadBoardTiles])
-
-  // Also reload board tiles when turn number changes (from polling or other updates)
-  useEffect(() => {
-    if (currentGame && currentGame.state === 1 && !loading) {
-      if (currentGame.turnNumber !== lastSeenTurnNumber) {
-        console.log('📡 Turn number changed - reloading board tiles...')
-        console.log(`  Previous turn: ${lastSeenTurnNumber}, New turn: ${currentGame.turnNumber}`)
-        setLastSeenTurnNumber(currentGame.turnNumber)
-        loadBoardTiles()
+    const loadGameData = async () => {
+      try {
+        setLoading(true)
+        
+        console.log('🔄 Manual load on mount...')
+        
+        await refreshGameData(blockchainGameId)
+        
+        // Load tile pool status
+        const poolStatus = await getTilePoolStatus(blockchainGameId)
+        setTilePoolStatus(poolStatus.remainingCounts)
+        
+        // Load placed tiles from board
+        await loadBoardTiles()
+        
+        setError(null)
+        setIsInitialLoad(false)
+        
+      } catch (error) {
+        console.error('❌ Failed to load game data:', error)
+        setError(`Error loading game: ${error.message}`)
+      } finally {
+        setLoading(false)
       }
     }
-  }, [currentGame?.turnNumber, currentGame?.state, loading, lastSeenTurnNumber, loadBoardTiles])
+    
+    if (blockchainGameId) {
+      // Only load once on mount - no automatic polling
+      loadGameData()
+    }
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+
+  // Manual refresh function for user-triggered updates
+  const handleManualRefresh = useCallback(async () => {
+    if (!blockchainGameId) return
+    
+    try {
+      setIsSyncing(true)
+      console.log('🔄 Manual refresh triggered by user...')
+      
+      await refreshGameData(blockchainGameId)
+      
+      // Load tile pool status
+      const poolStatus = await getTilePoolStatus(blockchainGameId)
+      setTilePoolStatus(poolStatus.remainingCounts)
+      
+      // Load placed tiles from board
+      await loadBoardTiles()
+      
+      setError(null)
+      
+    } catch (error) {
+      console.error('❌ Manual refresh failed:', error)
+      setError(`Refresh failed: ${error.message}`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
 
   // Update game message based on game state
   useEffect(() => {
@@ -461,11 +434,8 @@ export function BlockchainGameBoard({
       // Clear staged placements first
       setStagedPlacements([])
       
-      // Reload board tiles from blockchain to get authoritative state
-      // This ensures other players see the new tiles
-      setTimeout(() => {
-        loadBoardTiles()
-      }, 1000) // Small delay to allow blockchain state to update
+      // Manual refresh only - no automatic reload
+      console.log('✅ Turn confirmed. Use manual refresh to see updates.')
       
     } catch (error) {
       console.error('❌ Failed to confirm turn:', error)
@@ -782,6 +752,15 @@ export function BlockchainGameBoard({
         <div css={sectionStyle}>
           <h3 css={sectionTitleStyle}>Actions</h3>
           <div css={controlsStyle}>
+            {/* Manual Refresh Button (always available) */}
+            <button 
+              css={refreshButtonStyle}
+              onClick={handleManualRefresh}
+              disabled={isSyncing || hookLoading}
+            >
+              {isSyncing ? 'Refreshing...' : '🔄 Manual Refresh'}
+            </button>
+            
             {stagedPlacements.length > 0 ? (
               <>
                 <button 
@@ -1470,28 +1449,25 @@ const confirmButtonStyle = css`
   background: #10b981;
   color: white;
   border: none;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   transition: background-color 0.2s;
-  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 
   &:hover:not(:disabled) {
     background: #059669;
-    box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
   }
 
   &:disabled {
     background: #6b7280;
     cursor: not-allowed;
-    box-shadow: none;
   }
 `
 
 const clearButtonStyle = css`
-  background: #ef4444;
+  background: #6b7280;
   color: white;
   border: none;
   padding: 8px 16px;
@@ -1502,11 +1478,11 @@ const clearButtonStyle = css`
   transition: background-color 0.2s;
 
   &:hover:not(:disabled) {
-    background: #dc2626;
+    background: #4b5563;
   }
 
   &:disabled {
-    background: #6b7280;
+    background: #374151;
     cursor: not-allowed;
   }
 `
@@ -1535,9 +1511,6 @@ const ruleItemStyle = css`
   
   strong {
     color: #e5e5e5;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 `
 
@@ -1546,9 +1519,30 @@ const examplesStyle = css`
   flex-direction: column;
   gap: 2px;
   margin-top: 4px;
+  padding-left: 8px;
   font-size: 10px;
   color: #6b7280;
-  font-family: 'Monaco', 'Menlo', monospace;
+`
+
+const refreshButtonStyle = css`
+  background: #f59e0b;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+
+  &:hover:not(:disabled) {
+    background: #d97706;
+  }
+
+  &:disabled {
+    background: #6b7280;
+    cursor: not-allowed;
+  }
 `
 
 
