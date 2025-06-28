@@ -22,15 +22,27 @@ export function NetworkPicker() {
   // Define available networks
   const availableNetworks: Network[] = [
     {
-      chainId: 1,
-      name: 'Ethereum Mainnet',
-      rpcUrls: ['https://cloudflare-eth.com'],
+      chainId: 8453,
+      name: 'Base Mainnet',
+      rpcUrls: ['https://mainnet.base.org'],
+      nativeCurrency: { name: 'Ethereum', symbol: 'ETH', decimals: 18 }
+    },
+    {
+      chainId: 84532,
+      name: 'Base Sepolia',
+      rpcUrls: ['https://sepolia.base.org'],
       nativeCurrency: { name: 'Ethereum', symbol: 'ETH', decimals: 18 }
     },
     {
       chainId: 1337,
       name: 'Hardhat Local',
       rpcUrls: ['http://127.0.0.1:8545'],
+      nativeCurrency: { name: 'Ethereum', symbol: 'ETH', decimals: 18 }
+    },
+    {
+      chainId: 1,
+      name: 'Ethereum Mainnet',
+      rpcUrls: ['https://cloudflare-eth.com'],
       nativeCurrency: { name: 'Ethereum', symbol: 'ETH', decimals: 18 }
     },
     {
@@ -137,7 +149,8 @@ export function NetworkPicker() {
       }
     } catch (error: any) {
       console.error('❌ Failed to switch network:', error)
-      alert(`Failed to switch network: ${error.message}\n\nPlease try manually adding the network to your wallet:\n\nNetwork Name: Hardhat Local\nChain ID: 1337\nRPC URL: http://127.0.0.1:8545\nCurrency Symbol: ETH`)
+      const targetNetwork = availableNetworks.find(n => n.chainId === chainId)
+      alert(`Failed to switch network: ${error.message}\n\nPlease try manually adding the network to your wallet:\n\nNetwork Name: ${targetNetwork?.name}\nChain ID: ${chainId}\nRPC URL: ${targetNetwork?.rpcUrls[0]}\nCurrency Symbol: ${targetNetwork?.nativeCurrency.symbol}`)
       // Reset dropdown to current network
       event.target.value = currentNetwork?.toString() || ''
     } finally {

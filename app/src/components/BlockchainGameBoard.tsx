@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { createPublicClient, http } from 'viem'
-import { hardhat as hardhatChain } from 'viem/chains'
+import { base, hardhat } from 'viem/chains'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
 import { NewAgeGameBoard } from './NewAgeGameBoard'
 import type { GameConfig } from '../GameDisplay'
@@ -13,13 +13,21 @@ import { useDynamicContext } from '@dynamic-labs/sdk-react-core'
 import { BlockchainEndGameModal } from './BlockchainEndGameModal'
 
 // Contract configuration - FIXED VERSION with proper duplicate position validation
-const CONTRACT_ADDRESS = '0x610178dA211FEF7D417bC0e6FeD39F05609AD788' as `0x${string}`
+// Contract address is now obtained dynamically from the hook
 
 // Create public client for reading contract data
-const publicClient = createPublicClient({
-  chain: hardhatChain,
-  transport: http('http://127.0.0.1:8545')
-})
+const getPublicClient = (networkName: string) => {
+  const networkConfigs = {
+    'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
+    'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
+  }
+  
+  const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
+  return createPublicClient({
+    chain: config.chain,
+    transport: http(config.rpcUrl)
+  })
+}
 
 interface BlockchainGameBoardProps {
   gameConfig: GameConfig
@@ -48,7 +56,9 @@ export function BlockchainGameBoard({
     getTilePoolStatus,
     refreshGameData,
     loading: hookLoading,
-    error: hookError
+    error: hookError,
+    contractAddress,
+    networkName
   } = useBlockchainGame()
 
   const { primaryWallet } = useDynamicContext()
@@ -140,10 +150,27 @@ export function BlockchainGameBoard({
     try {
       console.log('🔍 Loading board tiles from blockchain...')
       
-      if (!currentGame) {
-        console.log('⚠️ No current game, skipping tile load')
+      if (!currentGame || !contractAddress) {
+        console.log('⚠️ No current game or contract address, skipping tile load')
         return
       }
+      
+      // Create network-aware public client
+      const networkConfigs = {
+        'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
+        'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
+      }
+      
+      const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
+      const publicClient = createPublicClient({
+        chain: config.chain,
+        transport: http(config.rpcUrl)
+      })
+      
+      console.log('📍 Using contract:', contractAddress, 'on network:', networkName)
+      console.log('🔍 Game ID:', blockchainGameId)
+      console.log('🔍 Current game state:', currentGame?.state)
+      console.log('🔍 Turn number:', currentGame?.turnNumber)
       
       const loadedTiles: any[] = []
       
@@ -154,7 +181,7 @@ export function BlockchainGameBoard({
           try {
             // Use the contract's getTileAt function
             const tileResult = await publicClient.readContract({
-              address: CONTRACT_ADDRESS,
+              address: contractAddress,
               abi: FivesGameABI.abi,
               functionName: 'getTileAt',
               args: [blockchainGameId, x, y]
@@ -189,7 +216,7 @@ export function BlockchainGameBoard({
       console.warn('❌ Failed to load board tiles:', error)
       setPlacedTiles([]) // Fallback to empty state
     }
-  }, [blockchainGameId, currentGame])
+  }, [blockchainGameId, currentGame, contractAddress, networkName])
 
   // Auto-reload board tiles when game state changes or when joining a game
   useEffect(() => {

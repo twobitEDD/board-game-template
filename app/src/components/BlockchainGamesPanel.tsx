@@ -33,7 +33,8 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     error, 
     isConnected,
     getAllGames,
-    contractAddress
+    contractAddress,
+    networkName
   } = useBlockchainGame()
   
   const { primaryWallet } = useDynamicContext()
@@ -143,7 +144,7 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     <div css={panelStyle}>
       <h2 css={titleStyle}>⛓️ Blockchain Games</h2>
       <div css={contractStyle}>
-        Contract: 0x6101...D788 (Hardhat Local - FIXED VERSION)
+        Contract: {contractAddress ? `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}` : 'Not Connected'} ({networkName || 'Unknown Network'})
       </div>
       
       {/* Debug info */}
@@ -560,50 +561,9 @@ const debugStyle = css`
   margin-bottom: 20px;
 `
 
-const networkSectionStyle = css`
-  text-align: center;
-  margin-bottom: 20px;
-`
-
-const networkButtonStyle = css`
-  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-  color: #1a1a2e;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: bold;
-  cursor: pointer;
-  margin-bottom: 10px;
-  
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(255, 215, 0, 0.3);
-  }
-  
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-`
-
-const networkInstructionStyle = css`
-  color: #888;
-  margin-top: 10px;
-`
-
 const instructionStyle = css`
   color: #888;
   margin-top: 10px;
-`
-
-const networkPickerStyle = css`
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ffd700;
-  border-radius: 6px;
-  background: rgba(255, 215, 0, 0.1);
-  color: #fff;
-  margin-bottom: 15px;
 `
 
 const gamesSectionStyle = css`
@@ -738,16 +698,6 @@ const joinButtonStyle = css`
   }
 `
 
-const errorStyle = css`
-  background: rgba(255, 77, 77, 0.1);
-  border: 1px solid #ff4d4d;
-  color: #ff4d4d;
-  padding: 10px;
-  border-radius: 6px;
-  margin-bottom: 15px;
-  text-align: center;
-`
-
 const joinedActionsStyle = css`
   display: flex;
   flex-direction: column;
@@ -776,4 +726,4 @@ const playGameButtonStyle = css`
     cursor: not-allowed;
     transform: none;
   }
-` 
+`

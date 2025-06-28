@@ -11,7 +11,7 @@ import { NewAgeDisplay } from './NewAgeDisplay'
 import { RulesPage } from './components/RulesPage'
 import { userService } from './services/UserService'
 
-// Define custom Hardhat network
+// Define custom networks - both Hardhat for testing and Base for live game
 const customEvmNetworks = [
   {
     blockExplorerUrls: [],
@@ -28,6 +28,36 @@ const customEvmNetworks = [
     networkId: 1337,
     vanityName: "Hardhat Local",
   },
+  {
+    blockExplorerUrls: ["https://basescan.org"],
+    chainId: 8453,
+    chainName: "Base",
+    name: "Base",
+    rpcUrls: ["https://mainnet.base.org"],
+    iconUrls: ["https://raw.githubusercontent.com/base-org/brand-kit/main/logo/in-product/Base_Network_Logo.svg"],
+    nativeCurrency: {
+      name: "Ethereum",
+      symbol: "ETH",
+      decimals: 18,
+    },
+    networkId: 8453,
+    vanityName: "Base Mainnet",
+  },
+  {
+    blockExplorerUrls: ["https://sepolia.basescan.org"],
+    chainId: 84532,
+    chainName: "Base Sepolia",
+    name: "Base Sepolia Testnet", 
+    rpcUrls: ["https://sepolia.base.org"],
+    iconUrls: ["https://raw.githubusercontent.com/base-org/brand-kit/main/logo/in-product/Base_Network_Logo.svg"],
+    nativeCurrency: {
+      name: "Ethereum",
+      symbol: "ETH",
+      decimals: 18,
+    },
+    networkId: 84532,
+    vanityName: "Base Sepolia",
+  }
 ]
 
 // Main game router component (inside Dynamic context)
@@ -92,9 +122,9 @@ function App() {
         walletConnectors: [EthereumWalletConnectors],
         appName: "Fives - Tile Weaving Game",
         appLogoUrl: "/favicon-32x32.png",
-                  overrides: {
-            evmNetworks: (networks) => [...networks, ...customEvmNetworks],
-          },
+        overrides: {
+          evmNetworks: (networks) => [...networks, ...customEvmNetworks],
+        },
       }}
     >
       <GameRouter />
