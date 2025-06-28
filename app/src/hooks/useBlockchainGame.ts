@@ -11,7 +11,7 @@ const NETWORK_CONFIGS = {
   8453: { // Base Mainnet
     contractAddress: '0x80f80B22D1839F2216F7f7814398e7039Fc17546' as `0x${string}`,
     chain: base,
-    rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/demo', // Alchemy has higher rate limits
+    rpcUrl: 'https://mainnet.base.org', // Official Base public RPC
     name: 'Base Mainnet'
   },
   1337: { // Hardhat Local

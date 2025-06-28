@@ -18,7 +18,7 @@ import { BlockchainEndGameModal } from './BlockchainEndGameModal'
 // Create public client for reading contract data
 const getPublicClient = (networkName: string) => {
   const networkConfigs = {
-    'Base Mainnet': { chain: base, rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/demo' },
+    'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
     'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
   }
   
@@ -91,7 +91,7 @@ export function BlockchainGameBoard({
       
       // Create network-aware public client
       const networkConfigs = {
-        'Base Mainnet': { chain: base, rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/demo' },
+        'Base Mainnet': { chain: base, rpcUrl: 'https://mainnet.base.org' },
         'Hardhat Local': { chain: hardhat, rpcUrl: 'http://127.0.0.1:8545' }
       }
       
