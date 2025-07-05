@@ -1,5 +1,5 @@
 // Game Rules Data Structure
-// This file contains all the rules for Summoning Looms in an easily editable format
+// This file contains all the rules for SUMMON5 in an easily editable format
 
 export interface RuleSection {
   id: string
@@ -27,7 +27,7 @@ export interface GameRulesData {
 }
 
 export const gameRules: GameRulesData = {
-  title: "SUMMONING LOOMS",
+  title: "SUMMON5",
   subtitle: "Ancient Mathematical Weaving Arts",
   version: "1.0",
   lastUpdated: "2024-12-19",
@@ -39,7 +39,7 @@ export const gameRules: GameRulesData = {
       id: "overview",
       title: "The Ancient Art",
       content: [
-        "In the mystical realm of Summoning Looms, players are Wyrd-Weavers who channel mathematical energy through sacred number patterns.",
+        "In the mystical realm of SUMMON5, players are Wyrd-Weavers who channel mathematical energy through sacred number patterns.",
         "Using Rune Threads (numbered tiles 0-9), weavers place tiles on The Great Loom to form sequences that sum to multiples of the Sacred Number.",
         "The Sacred Number is currently set to 5, but ancient texts speak of other mystical numbers (3, 7) used by different schools of magic."
       ]

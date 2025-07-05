@@ -1,7 +1,7 @@
 import { NumberTileId, GameParkUtils } from '../gamepark'
 
 // ====================================
-// SUMMONING LOOMS - RUNE THREAD CONFIG
+// SUMMON5 - RUNE THREAD CONFIG
 // ====================================
 // 
 // 🔮 Easy Configuration for Rune Thread Names & Styling

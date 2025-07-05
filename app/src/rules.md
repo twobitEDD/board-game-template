@@ -1,7 +1,7 @@
-# SUMMONING LOOMS: Game Rules
+# SUMMON5: Game Rules
 
 ## Overview
-**Summoning Looms** is a tile-placement game where players weave mathematical patterns to channel mystical energy. Players place numbered tiles (0-9) on a grid to form sequences that sum to the **Sacred Number** (configurable, default: 5).
+**SUMMON5** is a tile-placement game where players weave mathematical patterns to channel mystical energy. Players place numbered tiles (0-9) on a grid to form sequences that sum to the **Sacred Number** (configurable, default: 5).
 
 ## Game Components
 - **The Great Loom**: 15×15 grid board

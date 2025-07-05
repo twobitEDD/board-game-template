@@ -104,9 +104,7 @@ function GameRouter() {
   const showTexturePreview = window.location.hash === '#textures'
   const showNewAge = window.location.pathname.includes('/new-age')
   const showRules = window.location.pathname.includes('/rules')
-  const showGallery = window.location.pathname.includes('/gallery')
   const showGame = window.location.pathname.includes('/game/')
-  const showSetup = window.location.pathname.includes('/setup')
   const showFives = window.location.pathname.includes('/fives')
   const showMysticalJoin = window.location.pathname.includes('/mystical-join')
   
@@ -137,12 +135,6 @@ function GameRouter() {
     return <RulesPage onBackToGame={() => window.history.back()} />
   }
   
-  if (showGallery) {
-    return <GameGallery onSelectGame={(gameId) => {
-      window.location.pathname = `/game/${gameId}`
-    }} />
-  }
-  
   if (showFives) {
     return <FivesGameInterface />
   }
@@ -159,25 +151,23 @@ function GameRouter() {
       gameId={gameId} 
       autoJoin={autoJoin}
       onExit={() => {
-        window.location.pathname = '/gallery'
+        window.location.pathname = '/'
       }} 
     />
   }
-
-  if (showSetup) {
-    return <GameDisplay />
-  }
   
-  // Default: Show the new landing page
+  // Default: Show the unified landing page with tabs
   return <GameLanding
     onPlayGame={() => {
-      window.location.pathname = '/setup'
+      // This will now be handled by the setup tab in the landing page
+      console.log('Game setup requested')
     }}
     onViewRules={() => {
       window.location.pathname = '/rules'
     }}
     onViewGallery={() => {
-      window.location.pathname = '/gallery'
+      // This will now be handled by the gallery tab in the landing page
+      console.log('Gallery requested')
     }}
     onPlayFives={() => {
       window.location.pathname = '/fives'

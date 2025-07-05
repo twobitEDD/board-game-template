@@ -4,6 +4,7 @@ import { css } from '@emotion/react'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
 import { useGameCache } from '../hooks/useGameCache'
 import { NewAgeGameBoard } from './NewAgeGameBoard'
+import { NewAgeTile } from './NewAgeTile'
 import type { GameConfig } from '../GameDisplay'
 import type { TileItem } from '../types/GameTypes'
 import { NumberTileId, GameParkUtils } from '../gamepark'
@@ -198,52 +199,77 @@ export function BlockchainGameBoard({
 
   // Validate placement (trusting the contract's comprehensive Quinto-style validation)
   const validatePlacement = (x: number, y: number, selectedTileNumber: number) => {
-    console.log(`🔍 VALIDATION DEBUG - validatePlacement called:`)
-    console.log(`  Position: (${x}, ${y})`)
-    console.log(`  Tile Number: ${selectedTileNumber}`)
-    console.log(`  Placed Tiles Count:`, placedTiles.length)
-    console.log(`  Staged Placements Count:`, stagedPlacements.length)
-    console.log(`  Total Tiles on Board:`, placedTiles.length + stagedPlacements.length)
-    
-    // Basic bounds check
+    // Basic boundary check
     if (x < 0 || x >= 15 || y < 0 || y >= 15) {
-      console.log(`❌ Bounds check failed: (${x}, ${y}) outside 0-14 range`)
-      return { isValid: false, error: "Outside board boundaries" }
+      return { isValid: false, error: 'Position outside board boundaries' }
     }
 
-    // Check if position is occupied  
-    const existingPlacedTile = placedTiles.find(tile => tile.x === x && tile.y === y)
-    const existingStagedTile = stagedPlacements.find(placement => placement.x === x && placement.y === y)
+    // Check if position is already occupied
+    const isOccupiedByPlaced = placedTiles.some(tile => tile.x === x && tile.y === y)
+    const isOccupiedByStaged = stagedPlacements.some(placement => placement.x === x && placement.y === y)
     
-    if (existingPlacedTile || existingStagedTile) {
-      console.log(`❌ Position occupied:`)
-      console.log(`  Existing placed tile:`, existingPlacedTile)
-      console.log(`  Existing staged tile:`, existingStagedTile)
-      return { isValid: false, error: "Position already occupied" }
+    if (isOccupiedByPlaced || isOccupiedByStaged) {
+      return { isValid: false, error: 'Position already occupied' }
     }
 
-    // Add helpful hints for Quinto-style rules
-    // Consider BOTH placed tiles AND staged tiles when determining first move
-    const totalTilesOnBoard = placedTiles.length + stagedPlacements.length
-    
-    if (totalTilesOnBoard === 0) {
-      // True first move - must be on or adjacent to center (7,7)
-      const distanceFromCenter = Math.abs(x - 7) + Math.abs(y - 7)
-      if (distanceFromCenter > 1) {
-        console.log(`⚠️ WARNING: First move should be on or adjacent to center (7,7). Current distance: ${distanceFromCenter}`)
-        console.log(`  Suggested positions: (7,7), (6,7), (8,7), (7,6), (7,8)`)
-        return { isValid: false, error: "First tile must be placed on or adjacent to center (7,7)" }
-      }
-    } else {
-      // Subsequent moves - have placed or staged tiles already
-      console.log(`ℹ️ Subsequent move - total tiles on board:`, totalTilesOnBoard, `(${placedTiles.length} placed + ${stagedPlacements.length} staged)`)
-      
-      // Allow broader placement - contract will validate Quinto rules
-      console.log(`✅ Allowing placement anywhere - contract will validate Quinto rules`)
+    // For first tile, allow placement anywhere
+    if (placedTiles.length === 0 && stagedPlacements.length === 0) {
+      return { isValid: true }
     }
 
-    console.log(`✅ Validation passed for (${x}, ${y})`)
-    return { isValid: true, error: null }
+    // Check adjacency (must be next to existing tile)
+    const adjacentPositions = [
+      { x: x - 1, y },
+      { x: x + 1, y },
+      { x, y: y - 1 },
+      { x, y: y + 1 }
+    ]
+
+    const hasAdjacentTile = adjacentPositions.some(pos => {
+      const hasPlacedAdjacent = placedTiles.some(tile => tile.x === pos.x && tile.y === pos.y)
+      const hasStagedAdjacent = stagedPlacements.some(placement => placement.x === pos.x && placement.y === pos.y)
+      return hasPlacedAdjacent || hasStagedAdjacent
+    })
+
+    if (!hasAdjacentTile) {
+      return { isValid: false, error: 'Tile must be placed adjacent to existing tiles' }
+    }
+
+    // Check mathematical rules (sum to 5 or difference of 5)
+    const adjacentTiles = adjacentPositions.map(pos => {
+      const placedTile = placedTiles.find(tile => tile.x === pos.x && tile.y === pos.y)
+      const stagedTile = stagedPlacements.find(placement => placement.x === pos.x && placement.y === pos.y)
+      return placedTile || stagedTile
+    }).filter(Boolean)
+
+    const isValidMath = adjacentTiles.every(adjTile => {
+      const sum = selectedTileNumber + adjTile!.number
+      const diff = Math.abs(selectedTileNumber - adjTile!.number)
+      return sum === 5 || diff === 5
+    })
+
+    if (!isValidMath) {
+      return { isValid: false, error: 'Adjacent tiles must sum to 5 or have a difference of 5' }
+    }
+
+    return { isValid: true }
+  }
+
+  // Helper functions for tile state management
+  const getTileState = (tile: any, isStaged: boolean = false): 'unplayed' | 'played' | 'burning' | 'empty' => {
+    if (isStaged) {
+      return 'unplayed'
+    }
+    return 'played'
+  }
+
+  const getTileCountdown = (tile: any): number | undefined => {
+    // For now, no burning tiles in blockchain games
+    return undefined
+  }
+
+  const getTileValue = (tile: any): number => {
+    return tile.number || 0
   }
 
   // Handle tile staging (local placement, no blockchain call yet)
@@ -664,13 +690,21 @@ export function BlockchainGameBoard({
                       onClick={() => handleTileStaging(blockchainX, blockchainY)}
                     >
                       {placedTile ? (
-                        <div css={placedTileStyle}>
-                          <span css={tileNumberStyle}>{placedTile.number}</span>
-                        </div>
+                        <NewAgeTile
+                          value={getTileValue(placedTile)}
+                          state={getTileState(placedTile, false)}
+                          countdownTurns={getTileCountdown(placedTile)}
+                          isSelected={false}
+                          onClick={() => {}} // Placed tiles are not clickable
+                        />
                       ) : stagedTile ? (
-                        <div css={stagedTileStyle}>
-                          <span css={tileNumberStyle}>{stagedTile.number}</span>
-                        </div>
+                        <NewAgeTile
+                          value={getTileValue(stagedTile)}
+                          state={getTileState(stagedTile, true)}
+                          countdownTurns={getTileCountdown(stagedTile)}
+                          isSelected={false}
+                          onClick={() => {}} // Staged tiles are not clickable
+                        />
                       ) : (
                         <div css={[emptySpaceStyle, isValidPosition && validPositionStyle]}>
                           {row === 7 && col === 7 ? '★' : ''}
@@ -697,16 +731,14 @@ export function BlockchainGameBoard({
         </div>
         <div css={handTrayGridStyle}>
           {handTiles.map((tile) => (
-            <div 
+            <NewAgeTile
               key={tile.uniqueId}
-              css={[
-                handTrayTileStyle, 
-                selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
-              ]}
+              value={getTileValue(tile)}
+              state="unplayed"
+              countdownTurns={getTileCountdown(tile)}
+              isSelected={selectedTile?.uniqueId === tile.uniqueId}
               onClick={() => setSelectedTile(selectedTile?.uniqueId === tile.uniqueId ? null : tile)}
-            >
-              {tile.number}
-            </div>
+            />
           ))}
         </div>
       </div>

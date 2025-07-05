@@ -20,7 +20,7 @@ export function Navigation({ currentPage, showWalletButton = true }: NavigationP
       <div css={navContainerStyle}>
         {/* Logo and title */}
         <div css={logoSectionStyle} onClick={() => handleNavigation('/')}>
-          <h2 css={logoStyle}>Summoning Looms</h2>
+          <h2 css={logoStyle}>SUMMON5</h2>
         </div>
 
         {/* Navigation links */}

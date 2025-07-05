@@ -20,6 +20,14 @@ interface TileItem {
     y?: number
     player?: any
   }
+  // New fields for player tracking and tile states
+  playerId?: number
+  placedByPlayer?: number
+  placedOnTurn?: number
+  state?: 'unplayed' | 'played' | 'burning' | 'empty'
+  countdownTurns?: number
+  isBurning?: boolean
+  burnStartTurn?: number
 }
 
 export interface GameState {
@@ -35,6 +43,9 @@ export interface GameState {
   winner: number | null
   tilesPlacedThisTurn: TileItem[]
   turnScore: number
+  // New fields for tile state management
+  burningTiles: TileItem[]
+  playerTileCounts: number[]
 }
 
 interface NewAgeGameBoardProps {
@@ -150,7 +161,10 @@ export function NewAgeGameBoard({
       gameEnded: false,
       winner: null,
       tilesPlacedThisTurn: [],
-      turnScore: 0
+      turnScore: 0,
+      // New fields for tile state management
+      burningTiles: [],
+      playerTileCounts: Array(config.playerCount).fill(0)
     }
   }
 
@@ -203,7 +217,10 @@ export function NewAgeGameBoard({
       gameEnded: blockchainGame.state === 2,
       winner: null,
       tilesPlacedThisTurn: [],
-      turnScore: 0
+      turnScore: 0,
+      // New fields for tile state management
+      burningTiles: [],
+      playerTileCounts: Array(blockchainGame.maxPlayers).fill(0)
     }
   }
 
@@ -222,6 +239,9 @@ export function NewAgeGameBoard({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showEndGameModal, setShowEndGameModal] = useState(false)
   const [gameStartTime] = useState(Date.now())
+  // New state for tile management
+  const [burningTiles, setBurningTiles] = useState<TileItem[]>([])
+  const [playerTileCounts, setPlayerTileCounts] = useState<number[]>(Array(gameConfig.playerCount).fill(0))
 
   useEffect(() => {
     if (isBlockchainMode && cachedGame && cachedTiles) {
@@ -235,6 +255,8 @@ export function NewAgeGameBoard({
       setTurnNumber(blockchainGameState.turnNumber)
       setGameMessage(blockchainGameState.gameMessage)
       setGameEnded(blockchainGameState.gameEnded)
+      setBurningTiles(blockchainGameState.burningTiles)
+      setPlayerTileCounts(blockchainGameState.playerTileCounts)
       
       setTilesPlacedThisTurn([])
       setTurnScore(0)
@@ -309,6 +331,102 @@ export function NewAgeGameBoard({
       default: return 0
     }
   }
+
+  // Helper functions for tile state management
+  const getTileState = (tile: TileItem): 'unplayed' | 'played' | 'burning' | 'empty' => {
+    if (tile.state) return tile.state
+    
+    // Check if tile is burning
+    if (tile.isBurning && tile.burnStartTurn) {
+      const turnsSinceBurn = turnNumber - tile.burnStartTurn
+      if (turnsSinceBurn >= 3) {
+        return 'empty' // Tile has burnt out
+      }
+      return 'burning'
+    }
+    
+    // Check if tile is placed this turn
+    const isPlacedThisTurn = tilesPlacedThisTurn.some(placedTile => 
+      placedTile.location.x === tile.location.x && 
+      placedTile.location.y === tile.location.y
+    )
+    
+    return isPlacedThisTurn ? 'unplayed' : 'played'
+  }
+
+  const getTileCountdown = (tile: TileItem): number | undefined => {
+    if (tile.isBurning && tile.burnStartTurn) {
+      const turnsSinceBurn = turnNumber - tile.burnStartTurn
+      const remainingTurns = 3 - turnsSinceBurn
+      return remainingTurns > 0 ? remainingTurns : undefined
+    }
+    return tile.countdownTurns
+  }
+
+  const updatePlayerTileCounts = useCallback(() => {
+    const counts = Array(gameConfig.playerCount).fill(0)
+    
+    // Count tiles on board by player
+    boardTiles.forEach(tile => {
+      if (tile.placedByPlayer !== undefined && tile.placedByPlayer >= 0) {
+        counts[tile.placedByPlayer]++
+      }
+    })
+    
+    setPlayerTileCounts(counts)
+  }, [boardTiles, gameConfig.playerCount])
+
+  const startTileBurning = useCallback((tile: TileItem) => {
+    const burningTile: TileItem = {
+      ...tile,
+      isBurning: true,
+      burnStartTurn: turnNumber,
+      state: 'burning',
+      countdownTurns: 3
+    }
+    
+    setBurningTiles(prev => [...prev, burningTile])
+    
+    // Update the tile in boardTiles
+    setBoardTiles(prev => prev.map(t => 
+      t.uniqueId === tile.uniqueId ? burningTile : t
+    ))
+  }, [turnNumber])
+
+  const processBurningTiles = useCallback(() => {
+    const newBurningTiles: TileItem[] = []
+    const tilesToRemove: TileItem[] = []
+    
+    burningTiles.forEach(tile => {
+      if (tile.burnStartTurn && (turnNumber - tile.burnStartTurn) >= 3) {
+        // Tile has burnt out
+        tilesToRemove.push(tile)
+      } else {
+        newBurningTiles.push(tile)
+      }
+    })
+    
+    setBurningTiles(newBurningTiles)
+    
+    // Remove burnt tiles from board
+    if (tilesToRemove.length > 0) {
+      setBoardTiles(prev => prev.filter(tile => 
+        !tilesToRemove.some(burntTile => burntTile.uniqueId === tile.uniqueId)
+      ))
+    }
+  }, [burningTiles, turnNumber])
+
+  // Update player tile counts when board changes
+  useEffect(() => {
+    updatePlayerTileCounts()
+  }, [boardTiles, updatePlayerTileCounts])
+
+  // Process burning tiles at the start of each turn
+  useEffect(() => {
+    if (turnNumber > 1) {
+      processBurningTiles()
+    }
+  }, [turnNumber, processBurningTiles])
 
   const handTiles = playerHands[currentPlayer] || []
   const currentPlayerId = `player${currentPlayer}`
@@ -444,7 +562,11 @@ export function NewAgeGameBoard({
     const placedTile: TileItem = {
       id: selectedTile.id,
       uniqueId: selectedTile.uniqueId,
-      location: { type: 'board', x, y }
+      location: { type: 'board', x, y },
+      playerId: currentPlayer,
+      placedByPlayer: currentPlayer,
+      placedOnTurn: turnNumber,
+      state: 'unplayed'
     }
 
     setTilesPlacedThisTurn(prev => [...prev, placedTile])
@@ -570,6 +692,14 @@ export function NewAgeGameBoard({
     setGameMessage(message)
   }
 
+  const triggerTileBurning = useCallback((tile: TileItem) => {
+    // Random chance for tiles to start burning (10% chance)
+    if (Math.random() < 0.1) {
+      startTileBurning(tile)
+      setGameMessage(`🔥 ${getTileValue(tile.id)} tile has caught fire! It will burn out in 3 turns.`)
+    }
+  }, [startTileBurning])
+
   const handleEndTurn = () => {
     if (tilesPlacedThisTurn.length === 0) {
       setGameMessage("You must place at least one tile before ending your turn!")
@@ -609,7 +739,23 @@ export function NewAgeGameBoard({
     newScores[currentPlayer] += finalTurnScore
     setScores(newScores)
 
-    const newBoardTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    // Update tiles with player tracking and check for burning
+    const updatedTilesPlacedThisTurn = tilesPlacedThisTurn.map(tile => {
+      const updatedTile = {
+        ...tile,
+        state: 'played' as const,
+        playerId: currentPlayer,
+        placedByPlayer: currentPlayer,
+        placedOnTurn: turnNumber
+      }
+      
+      // Check if tile should start burning
+      triggerTileBurning(updatedTile)
+      
+      return updatedTile
+    })
+
+    const newBoardTiles = [...boardTiles, ...updatedTilesPlacedThisTurn]
     setBoardTiles(newBoardTiles)
 
     const playerPile = playerDrawPiles[currentPlayer] || []
@@ -619,7 +765,8 @@ export function NewAgeGameBoard({
       const newHandTiles = newTiles.map((tileId, index) => ({
         id: tileId,
         uniqueId: `refill-${Date.now()}-${index}`,
-        location: { type: 'Hand', player: currentPlayerId }
+        location: { type: 'Hand', player: currentPlayerId },
+        state: 'unplayed' as const
       }))
       updateCurrentPlayerHand(prev => [...prev, ...newHandTiles])
     }
@@ -1039,7 +1186,9 @@ export function NewAgeGameBoard({
             gameEnded,
             winner,
             tilesPlacedThisTurn,
-            turnScore
+            turnScore,
+            burningTiles,
+            playerTileCounts
           }}
           onBackToSetup={onBackToSetup}
           onToggleSidebar={toggleSidebar}
@@ -1078,16 +1227,20 @@ export function NewAgeGameBoard({
                         onClick={() => handleBoardClick(colIndex, rowIndex)}
                       >
                         {tile ? (
-                          <NewAgeTile
-                            value={getTileValue(tile.id)}
-                            state={
-                              tilesPlacedThisTurn.some(placedTile => 
-                                placedTile.location.x === colIndex && placedTile.location.y === rowIndex
-                              ) ? "unplayed" : "played"
-                            }
-                            isSelected={false}
-                            onClick={() => handlePlacedTileClick(tile)}
-                          />
+                          <div css={tileContainerStyle}>
+                            <NewAgeTile
+                              value={getTileValue(tile.id)}
+                              state={getTileState(tile)}
+                              countdownTurns={getTileCountdown(tile)}
+                              isSelected={false}
+                              onClick={() => handlePlacedTileClick(tile)}
+                            />
+                            {tile.placedByPlayer !== undefined && (
+                              <div css={playerIndicatorStyle(tile.placedByPlayer)}>
+                                {tile.placedByPlayer + 1}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div css={emptySpaceStyle} />
                         )}
@@ -1136,7 +1289,8 @@ export function NewAgeGameBoard({
               <NewAgeTile
                 key={tile.uniqueId}
                 value={getTileValue(tile.id)}
-                state="unplayed"
+                state={getTileState(tile)}
+                countdownTurns={getTileCountdown(tile)}
                 isSelected={selectedTile?.uniqueId === tile.uniqueId}
                 onClick={() => handleTileSelect(tile)}
               />
@@ -1166,7 +1320,9 @@ export function NewAgeGameBoard({
             gameEnded,
             winner,
             tilesPlacedThisTurn,
-            turnScore
+            turnScore,
+            burningTiles,
+            playerTileCounts
           }}
         />
       </div>
@@ -1654,3 +1810,26 @@ const refreshButtonStyle = css`
     cursor: not-allowed;
   }
 `
+
+const tileContainerStyle = css`
+  position: relative;
+`
+
+const playerIndicatorStyle = (playerIndex: number) => {
+  return css`
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #000;
+    border: 2px solid rgba(255, 215, 0, 0.3);
+  `
+}

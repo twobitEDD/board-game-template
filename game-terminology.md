@@ -1,9 +1,9 @@
-# SUMMONING LOOMS: Norse Mathematical Magic Terminology
+# SUMMON5: Norse Mathematical Magic Terminology
 
 **Theme**: Norse mystical mathematics where players weave mathematical spells through ancient looms
 
 ## **Core Game Identity**
-- **Game**: SUMMONING LOOMS
+- **Game**: SUMMON5
 - **Subtitle**: "Weave the Threads of Fate Through Sacred Mathematics"
 - **Players**: **Loom-Summoners** or **Wyrd-Weavers**
 - **Gameplay**: Mystical mathematical spell-weaving through runic calculations

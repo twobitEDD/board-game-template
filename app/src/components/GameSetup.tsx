@@ -131,7 +131,7 @@ export function GameSetup({ onStartGame }: GameSetupProps) {
     <div css={quiltingWorkshopStyle}>
       <div css={workshopTableStyle}>
         <div css={workshopSignStyle}>
-          <h1 css={embroideredTitleStyle}>🔮 SUMMONING LOOMS 🔮</h1>
+          <h1 css={embroideredTitleStyle}>🔮 SUMMON5 🔮</h1>
           <p css={workshopMottoStyle}>Weave the Threads of Fate</p>
         </div>
 

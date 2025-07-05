@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { css } from '@emotion/react'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
 import { useGameCache } from '../hooks/useGameCache'
+import { NewAgeTile } from './NewAgeTile'
 import type { GameConfig } from '../GameDisplay'
 import type { TileItem } from '../types/GameTypes'
 import { NumberTileId, GameParkUtils } from '../gamepark'
@@ -187,6 +188,23 @@ export function BlockchainGameBoard({
     setGameMessageWithType(`✅ Tile ${selectedTile.number} staged at (${x}, ${y})`, 'success')
   }, [selectedTile, currentGame, playerInfo, primaryWallet, stagedPlacements, setGameMessageWithType])
 
+  // Helper functions for tile state management
+  const getTileState = (tile: any, isStaged: boolean = false): 'unplayed' | 'played' | 'burning' | 'empty' => {
+    if (isStaged) {
+      return 'unplayed'
+    }
+    return 'played'
+  }
+
+  const getTileCountdown = (tile: any): number | undefined => {
+    // For now, no burning tiles in blockchain games
+    return undefined
+  }
+
+  const getTileValue = (tile: any): number => {
+    return tile.number || 0
+  }
+
   // Confirm turn
   const handleConfirmTurn = useCallback(async () => {
     if (!currentGame || !playerInfo || stagedPlacements.length === 0) {
@@ -321,9 +339,13 @@ export function BlockchainGameBoard({
                     onClick={() => handleTileStaging(x, y)}
                   >
                     {stagedTile && (
-                      <div css={stagedTileStyle}>
-                        {stagedTile.number}
-                      </div>
+                      <NewAgeTile
+                        value={getTileValue(stagedTile)}
+                        state={getTileState(stagedTile, true)}
+                        countdownTurns={getTileCountdown(stagedTile)}
+                        isSelected={false}
+                        onClick={() => {}} // Staged tiles are not clickable
+                      />
                     )}
                     {isCenter && !stagedTile && (
                       <div css={centerMarkerStyle}>★</div>
@@ -340,18 +362,16 @@ export function BlockchainGameBoard({
           <h3>Your Hand</h3>
           <div css={handGridStyle}>
             {handTiles.map(tile => (
-              <div
+              <NewAgeTile
                 key={tile.uniqueId}
-                css={[
-                  handTileStyle,
-                  selectedTile?.uniqueId === tile.uniqueId && selectedTileStyle
-                ]}
+                value={getTileValue(tile)}
+                state="unplayed"
+                countdownTurns={getTileCountdown(tile)}
+                isSelected={selectedTile?.uniqueId === tile.uniqueId}
                 onClick={() => setSelectedTile(
                   selectedTile?.uniqueId === tile.uniqueId ? null : tile
                 )}
-              >
-                {tile.number}
-              </div>
+              />
             ))}
           </div>
           

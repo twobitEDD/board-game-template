@@ -132,6 +132,37 @@ export function NewAgePlayerPanel({ gameConfig, gameState }: NewAgePlayerPanelPr
                   {Math.round((gameState.scores[index] / gameConfig.winningScore) * 100)}%
                 </div>
               </div>
+
+              {/* Tiles on Board Section */}
+              <div css={boardTilesSectionStyle}>
+                <div css={boardTilesTitleStyle}>
+                  Tiles on Board ({gameState.playerTileCounts?.[index] || 0})
+                </div>
+                <div css={boardTilesGridStyle}>
+                  {gameState.boardTiles
+                    .filter(tile => tile.placedByPlayer === index)
+                    .slice(0, 8) // Show max 8 tiles
+                    .map((tile, tileIndex) => (
+                      <NewAgeTile
+                        key={`board-${tile.id}-${tileIndex}`}
+                        value={getTileValue(tile.id)}
+                        state={tile.state || 'played'}
+                        countdownTurns={tile.countdownTurns}
+                        size={20}
+                        isSelected={false}
+                        onClick={() => {}}
+                      />
+                    ))}
+                  {gameState.boardTiles.filter(tile => tile.placedByPlayer === index).length === 0 && (
+                    <div css={noBoardTilesStyle}>No tiles placed yet</div>
+                  )}
+                  {gameState.boardTiles.filter(tile => tile.placedByPlayer === index).length > 8 && (
+                    <div css={moreTilesStyle}>
+                      +{gameState.boardTiles.filter(tile => tile.placedByPlayer === index).length - 8} more
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )
         })}
@@ -153,6 +184,15 @@ export function NewAgePlayerPanel({ gameConfig, gameState }: NewAgePlayerPanelPr
           <span css={statusValueStyle}>
             {gameState.playerHands.reduce((sum, hand) => sum + hand.length, 0) + 
              gameState.playerDrawPiles.reduce((sum, pile) => sum + pile.length, 0)}
+          </span>
+        </div>
+        <div css={statusItemStyle}>
+          <span css={statusLabelStyle}>Burning Tiles:</span>
+          <span css={statusValueStyle}>
+            {gameState.burningTiles?.length || 0}
+            {gameState.burningTiles && gameState.burningTiles.length > 0 && (
+              <span css={burningWarningStyle}> 🔥</span>
+            )}
           </span>
         </div>
         {gameState.gameEnded && (
@@ -470,4 +510,50 @@ const lowTilesWarningStyle = css`
   font-weight: 700;
   margin-top: 12px;
   animation: glow 2s ease-in-out infinite;
+`
+
+const boardTilesSectionStyle = css`
+  margin-top: 12px;
+`
+
+const boardTilesTitleStyle = css`
+  color: #F5DEB3;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+  opacity: 0.9;
+`
+
+const boardTilesGridStyle = css`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+`
+
+const noBoardTilesStyle = css`
+  grid-column: 1 / -1;
+  text-align: center;
+  color: rgba(245, 222, 179, 0.6);
+  font-size: 0.8rem;
+  font-style: italic;
+  padding: 8px;
+`
+
+const moreTilesStyle = css`
+  grid-column: 1 / -1;
+  text-align: center;
+  color: rgba(255, 215, 0, 0.8);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px;
+`
+
+const burningWarningStyle = css`
+  color: #FF4500;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-left: 4px;
+  animation: pulse 1s ease-in-out infinite;
 ` 
