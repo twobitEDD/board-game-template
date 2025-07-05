@@ -5,27 +5,13 @@ import { writeContract } from 'viem/actions'
 import { base, hardhat } from 'viem/chains'
 import FivesGameABI from '../contracts/FivesGame.json'
 import type { TileItem } from '../types/GameTypes'
+import { getContractAddress, getNetworkConfig, getRpcUrls, isNetworkSupported, getConfigSummary, CONTRACT_CONFIG } from '../config/contractConfig'
 
-// Network-specific contract configurations with multiple RPC fallbacks
-const NETWORK_CONFIGS = {
-  8453: { // Base Mainnet
-    contractAddress: '0x80f80B22D1839F2216F7f7814398e7039Fc17546' as `0x${string}`,
-    chain: base,
-    rpcUrls: [
-      'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
-      'https://1rpc.io/base',           // 1RPC (good CORS support)
-      'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
-      'https://mainnet.base.org',       // Official Base (backup)
-      'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
-    ],
-    name: 'Base Mainnet'
-  },
-  1337: { // Hardhat Local
-    contractAddress: '0x5FbDB2315678afecb367f032d93F642f64180aa3' as `0x${string}`, // Default Hardhat first deployment
-    chain: hardhat,
-    rpcUrls: ['http://127.0.0.1:8545'],
-    name: 'Hardhat Local'
-  }
+// Network chain mapping for viem
+const CHAIN_CONFIGS = {
+  8453: base,
+  1337: { ...hardhat, id: 1337 },
+  84532: { ...base, id: 84532, name: 'Base Sepolia Testnet' }
 }
 
 interface BlockchainGame {
@@ -68,680 +54,1051 @@ export function useBlockchainGame() {
   const [error, setError] = useState<string | null>(null)
   const [currentNetwork, setCurrentNetwork] = useState<number | null>(null)
 
-  // Get network configuration
-  const getNetworkConfig = useCallback(() => {
-    if (!primaryWallet) return NETWORK_CONFIGS[8453] // Default to Base mainnet
+  // Helper to check if wallet supports ZeroDev sponsored transactions
+  const canUseSponsorship = useCallback(() => {
+    if (!primaryWallet) {
+      console.log('💰 SPONSORSHIP: No primary wallet available')
+      return false
+    }
     
-    const chainId = primaryWallet.connector?.connectedChain?.id || 8453
-    return NETWORK_CONFIGS[chainId] || NETWORK_CONFIGS[8453]
+    const connector = primaryWallet.connector
+    const hasAAProvider = !!(connector as any).getAccountAbstractionProvider
+    
+    console.log('💰 SPONSORSHIP: Checking sponsorship capability:', {
+      walletType: connector?.name || 'Unknown',
+      hasGetAccountAbstractionProvider: hasAAProvider,
+      connectorDetails: {
+        name: connector?.name,
+        type: connector?.type,
+        id: connector?.id
+      },
+      walletAddress: primaryWallet.address,
+      isConnected: primaryWallet.connected
+    })
+    
+    return hasAAProvider
   }, [primaryWallet])
 
-  // Create public client with retry logic and RPC fallbacks
-  const createPublicClientWithFallback = useCallback(() => {
-    const config = getNetworkConfig()
-    
-    // Use a different RPC each time to distribute load
-    const rpcIndex = Math.floor(Math.random() * config.rpcUrls.length)
-    const selectedRpc = config.rpcUrls[rpcIndex]
-    
-    console.log(`🌐 Using RPC ${rpcIndex + 1}/${config.rpcUrls.length}: ${selectedRpc}`)
-    
-    return createPublicClient({
-      chain: config.chain,
-      transport: http(selectedRpc, {
-        retryCount: 1, // Reduce retries per RPC
-        retryDelay: 500,
-        timeout: 8000
+  // Auto-fund wallet helper (only for local development)
+  const autoFundWallet = useCallback(async (walletAddress: string) => {
+    try {
+      console.log('🏦 Auto-funding wallet from Hardhat account...')
+      console.log('  From: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (Hardhat Account #0)')
+      console.log('  To:', walletAddress)
+      console.log('  Amount: 100 ETH')
+      
+      // Call the Hardhat node to transfer ETH from the first pre-funded account
+      const response = await fetch('http://127.0.0.1:8545', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_sendTransaction',
+          params: [{
+            from: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', // First Hardhat account with 10,000 ETH
+            to: walletAddress,
+            value: '0x56BC75E2D630E0000' // 100 ETH in hex (100 * 10^18)
+          }],
+          id: Date.now()
+        })
       })
-    })
-  }, [getNetworkConfig])
-
-  // Enhanced contract read with manual RPC cycling
-  const readContractWithFallback = useCallback(async (args: any) => {
-    const config = getNetworkConfig()
-    let lastError
-
-    // Try each RPC in sequence until one works
-    for (let i = 0; i < config.rpcUrls.length; i++) {
-      try {
-        console.log(`🔄 Trying RPC ${i + 1}/${config.rpcUrls.length}: ${config.rpcUrls[i]}`)
-        
-        const publicClient = createPublicClient({
-          chain: config.chain,
-          transport: http(config.rpcUrls[i], {
-            retryCount: 1,
-            retryDelay: 500,
-            timeout: 8000
-          })
-        })
-        
-        const result = await publicClient.readContract({
-          address: config.contractAddress,
-          abi: FivesGameABI.abi,
-          ...args
-        })
-        
-        console.log(`✅ RPC ${i + 1} succeeded`)
-        return result
-        
-      } catch (error: any) {
-        lastError = error
-        console.warn(`❌ RPC ${i + 1} failed:`, error.message?.slice(0, 100))
-        
-        // Don't retry immediately on rate limit, try next RPC
-        if (error?.message?.includes('rate limit') || error?.message?.includes('429')) {
-          console.log(`⚠️ RPC ${i + 1} rate limited, trying next...`)
-          continue
-        }
-        
-        // For other errors, still try next RPC but with a small delay
-        if (i < config.rpcUrls.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200))
-        }
+      
+      const result = await response.json()
+      
+      if (result.error) {
+        throw new Error(result.error.message)
       }
+      
+      console.log('✅ Auto-funding transaction sent:', result.result)
+      
+      // Wait a moment for the transaction to be processed
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      return result.result
+    } catch (error) {
+      console.error('❌ Auto-funding failed:', error)
+      throw error
     }
-    
-    // If all RPCs failed, throw the last error
-    console.error('❌ All RPCs failed, throwing last error')
-    throw lastError
-  }, [getNetworkConfig])
+  }, [])
 
-  // Update current network when wallet changes
+  // Network detection and setup with improved fallbacks
   useEffect(() => {
     const updateNetwork = async () => {
-      if (primaryWallet) {
+      // Allow network detection even without wallet for public data reading
+      if (!primaryWallet) {
+        // For spectator mode, default to Base Sepolia to allow reading public data
+        console.log('🌐 NETWORK: No wallet connected, using Base Sepolia for public data reading')
+        setCurrentNetwork(84532) // Base Sepolia
+        return
+      }
+      
+      try {
+        console.log('🌐 NETWORK: Starting network detection...')
+        
+        // Method 1: Try to get network from wallet
+        let networkId: number | null = null
         try {
-          const chainId = await primaryWallet.getNetwork()
-          const networkId = Number(chainId)
-          setCurrentNetwork(networkId)
-          console.log('🌐 Network updated:', networkId, getNetworkConfig().name)
+          networkId = await primaryWallet.getNetwork()
+          console.log('🌐 NETWORK: Got network from wallet.getNetwork():', networkId)
         } catch (error) {
-          console.warn('⚠️ Could not get network:', error)
+          console.log('🌐 NETWORK: wallet.getNetwork() failed:', error.message)
+        }
+        
+        // Method 2: Fallback to chainId from connector
+        if (!networkId && primaryWallet.connector) {
+          try {
+            const chainId = (primaryWallet.connector as any).chainId
+            if (chainId) {
+              networkId = typeof chainId === 'string' ? parseInt(chainId, 16) : chainId
+              console.log('🌐 NETWORK: Got network from connector.chainId:', networkId)
+            }
+          } catch (error) {
+            console.log('🌐 NETWORK: connector.chainId failed:', error.message)
+          }
+        }
+        
+        // Method 3: Fallback to default Base Sepolia for development
+        if (!networkId) {
+          networkId = 84532 // Base Sepolia default
+          console.log('🌐 NETWORK: Using fallback network (Base Sepolia):', networkId)
+        }
+        
+        // Validate network is supported
+        if (networkId && isNetworkSupported(networkId)) {
+          setCurrentNetwork(networkId)
+          console.log('✅ NETWORK: Network updated successfully:', networkId)
+        } else {
+          console.warn('⚠️ NETWORK: Unsupported network, using Base Sepolia fallback:', networkId)
+          setCurrentNetwork(84532) // Force Base Sepolia as fallback
+        }
+        
+      } catch (error) {
+        console.error('❌ NETWORK: Failed to update network:', error)
+        // Fallback to Base Sepolia
+        setCurrentNetwork(84532)
+      }
+    }
+
+    updateNetwork()
+
+    // Listen for network changes
+    const handleNetworkSwitched = (event: CustomEvent) => {
+      console.log('🔄 NETWORK: Network switched event:', event.detail)
+      updateNetwork()
+    }
+
+    const handleReadOnlyNetworkChanged = (event: CustomEvent) => {
+      console.log('🔄 NETWORK: Read-only network changed event:', event.detail)
+      updateNetwork()
+    }
+
+    // Add event listeners
+    window.addEventListener('dynamic_network_switched', handleNetworkSwitched as EventListener)
+    window.addEventListener('dynamic_readonly_network_changed', handleReadOnlyNetworkChanged as EventListener)
+
+    return () => {
+      window.removeEventListener('dynamic_network_switched', handleNetworkSwitched as EventListener)
+      window.removeEventListener('dynamic_readonly_network_changed', handleReadOnlyNetworkChanged as EventListener)
+    }
+  }, [primaryWallet])
+
+  // Get contract configuration for current network
+  const getContractConfig = useCallback(() => {
+    if (!currentNetwork) return null
+    
+    const config = getNetworkConfig(currentNetwork)
+    if (!config) {
+      console.warn(`⚠️ No contract configuration found for network ${currentNetwork}`)
+      return null
+    }
+    
+    return config
+  }, [currentNetwork])
+
+  // Get current network's public client for reading
+  const getPublicClient = useCallback(() => {
+    if (!currentNetwork) return null
+    
+    const rpcUrls = getRpcUrls(currentNetwork)
+    if (!rpcUrls.length) return null
+    
+    const chain = CHAIN_CONFIGS[currentNetwork]
+    if (!chain) return null
+    
+    return createPublicClient({
+      chain,
+      transport: http(rpcUrls[0])
+    })
+  }, [currentNetwork])
+
+  // Calculate derived properties for backward compatibility (MOVED UP)
+  const contractAddress = getContractConfig()?.contractAddress || null
+  const networkName = getContractConfig()?.name || null
+  const isConnected = !!currentNetwork // Allow connection for public data reading even without wallet
+  const contractInteractionAddress = primaryWallet?.address || null
+
+  // Send transaction with automatic sponsorship detection
+  const sendTransaction = useCallback(async (functionName: string, args: any[]) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
+    const config = getContractConfig()
+    if (!config) throw new Error('Contract not configured for current network')
+    
+    const chain = CHAIN_CONFIGS[currentNetwork!]
+    if (!chain) throw new Error('Chain configuration not found')
+    
+    // Check if we can use sponsored transactions
+    const canUseSponsor = canUseSponsorship()
+    
+    console.log('🎮 SIMPLIFIED: Sending transaction with player address approach', {
+      functionName,
+      args,
+      config: config.contractAddress,
+      network: currentNetwork,
+      userDisplayAddress: primaryWallet.address,
+      canUseSponsoredTransactions: canUseSponsor
+    })
+
+    try {
+      // For functions that require player address parameter, add the user's display address
+      let finalArgs = args
+      if (functionName === 'createGame' || functionName === 'joinGame') {
+        // Add the user's display address as the last parameter
+        const playerDisplayAddress = primaryWallet.address
+        finalArgs = [...args, playerDisplayAddress]
+        
+        console.log('🎮 SIMPLIFIED: Added player address parameter:', {
+          originalArgs: args,
+          finalArgs: finalArgs,
+          playerDisplayAddress: playerDisplayAddress
+        })
+      }
+
+      // Try sponsored transactions first if available
+      if (canUseSponsor) {
+        try {
+          console.log('💰 SPONSORED: Attempting sponsored transaction...')
+          console.log('💰 SPONSORED: Function:', functionName, 'Args:', finalArgs)
+          
+          const connector = primaryWallet.connector as any
+          console.log('💰 SPONSORED: Connector details:', {
+            name: connector?.name,
+            key: connector?.key,
+            hasAAProvider: !!connector?.getAccountAbstractionProvider
+          })
+          
+          // Try different methods to get AA provider
+          let aaProvider = null
+          
+          // Method 1: Direct call
+          if (connector?.getAccountAbstractionProvider) {
+            console.log('💰 SPONSORED: Trying direct getAccountAbstractionProvider...')
+            aaProvider = await connector.getAccountAbstractionProvider()
+          }
+          
+          // Method 2: With options
+          if (!aaProvider && connector?.getAccountAbstractionProvider) {
+            console.log('💰 SPONSORED: Trying with withSponsorship option...')
+            aaProvider = await connector.getAccountAbstractionProvider({
+              withSponsorship: true
+            })
+          }
+          
+          console.log('💰 SPONSORED: AA Provider result:', {
+            hasProvider: !!aaProvider,
+            providerType: aaProvider ? (aaProvider as any).constructor?.name : 'None',
+            methods: aaProvider ? Object.keys(aaProvider) : []
+          })
+          
+          if (aaProvider) {
+            // Encode the function call
+            const data = encodeFunctionData({
+              abi: FivesGameABI.abi,
+              functionName,
+              args: finalArgs
+            })
+            
+            console.log('💰 SPONSORED: Encoded data:', data)
+            console.log('💰 SPONSORED: Contract address:', config.contractAddress)
+            
+            // Send sponsored transaction
+            const txHash = await (aaProvider as any).sendTransaction({
+              to: config.contractAddress as `0x${string}`,
+              data,
+              value: '0x0' // No ETH value needed
+            })
+            
+            console.log('✅ SPONSORED: Transaction sent successfully:', txHash)
+            return txHash
+          } else {
+            console.log('⚠️ SPONSORED: No AA provider available')
+          }
+        } catch (sponsorError) {
+          console.error('❌ SPONSORED: Sponsored transaction failed:', sponsorError)
+          console.error('❌ SPONSORED: Error details:', {
+            message: sponsorError.message,
+            cause: sponsorError.cause,
+            stack: sponsorError.stack?.slice(0, 200)
+          })
+          console.warn('⚠️ SPONSORED: Falling back to regular transaction')
         }
       } else {
-        setCurrentNetwork(null)
+        console.log('⚠️ SPONSORED: Sponsorship not available - wallet does not support it')
       }
-    }
-    
-    updateNetwork()
-  }, [primaryWallet, getNetworkConfig])
 
-  // Reduced debug logging to prevent console spam
-  useEffect(() => {
-    if (error) {
-      console.log('🔍 useBlockchainGame error:', error)
-    }
-  }, [error])
-
-  // Helper to check if wallet is connected and get network info
-  const ensureConnection = useCallback(async () => {
-    console.log('🔌 Checking wallet connection...', { primaryWallet: !!primaryWallet })
-    
-    if (!primaryWallet) {
-      throw new Error('Please connect your wallet first')
-    }
-
-    // Get current network
-    const chainId = await primaryWallet.getNetwork()
-    const networkId = Number(chainId)
-    setCurrentNetwork(networkId)
-    
-    const config = getNetworkConfig()
-    console.log('🌐 Connected to network:', config.name, 'Chain ID:', networkId)
-    console.log('📄 Using contract:', config.contractAddress)
-
-    // Check wallet balance
-    try {
-      const publicClient = createPublicClientWithFallback()
-      const balance = await publicClient.getBalance({
-        address: primaryWallet.address as `0x${string}`
+      // Fall back to regular transaction
+      console.log('💳 REGULAR: Sending regular transaction...')
+      const walletClient = await primaryWallet.getWalletClient()
+      
+      const txHash = await writeContract(walletClient, {
+        address: config.contractAddress as `0x${string}`,
+        abi: FivesGameABI.abi,
+        functionName,
+        args: finalArgs,
+        chain,
+        account: primaryWallet.address as `0x${string}`
       })
-      
-      console.log('💰 Wallet balance:', formatEther(balance), 'ETH')
-      
-      // Warn if balance is very low
-      if (balance < parseEther('0.001')) {
-        console.warn('⚠️ Low wallet balance detected. You may need more ETH for transactions.')
-      }
-    } catch (balanceError) {
-      console.warn('⚠️ Could not check balance:', balanceError)
+
+      console.log('✅ REGULAR: Transaction sent successfully:', txHash)
+      return txHash
+    } catch (error) {
+      console.error('❌ Transaction failed:', error)
+      throw error
     }
+  }, [primaryWallet, currentNetwork, getContractConfig, canUseSponsorship])
 
-    return { networkId, config }
-  }, [primaryWallet, getNetworkConfig, createPublicClientWithFallback])
-
-  // Create a new game on the blockchain with new parameters
+  // Create a new game
   const createGame = useCallback(async (maxPlayers: number, allowIslands: boolean, winningScore: number, playerName: string) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
     setLoading(true)
     setError(null)
     
     try {
-      const { networkId, config } = await ensureConnection()
-      const publicClient = createPublicClientWithFallback()
+      console.log('🎮 SIMPLIFIED: Creating game with simplified approach...')
       
-      console.log('🎮 Creating blockchain game...', { maxPlayers, allowIslands, winningScore, playerName })
-      console.log('📄 Using contract address:', config.contractAddress)
+      // Convert parameters to contract format
+      const contractMaxPlayers = maxPlayers
+      const contractAllowIslands = allowIslands
+      const contractWinningScore = winningScore
+      const contractPlayerName = playerName || 'Player'
       
-      if (!primaryWallet) {
-        throw new Error('Wallet not available')
-      }
-
-      // Use Dynamic's recommended approach to get the wallet client
-      const walletClient = await primaryWallet.getWalletClient()
-      
-      console.log('📋 Wallet client obtained:', !!walletClient)
-      
-      // Test wallet connectivity before attempting the transaction
-      try {
-        console.log('🧪 Testing wallet connectivity...')
-        
-        // Test 1: Check if we can get the current chain ID
-        const currentChainId = await walletClient.getChainId()
-        console.log('🔗 Current chain ID:', currentChainId)
-        
-        // Test 2: Check if we can get account balance
-        const balance = await publicClient.getBalance({
-          address: primaryWallet.address as `0x${string}`
-        })
-        console.log('💰 Account balance:', formatEther(balance), 'ETH')
-        
-        // Test 3: Try a simple contract call (view function)
-        const nextGameId = await publicClient.readContract({
-          address: config.contractAddress,
-          abi: FivesGameABI.abi,
-          functionName: 'nextGameId'
-        })
-        console.log('🎯 Next game ID from contract:', nextGameId)
-        
-        console.log('✅ All connectivity tests passed')
-        
-      } catch (testError) {
-        console.error('❌ Connectivity test failed:', testError)
-        throw new Error(`Wallet connectivity test failed: ${testError.message}. Please check your wallet connection and network settings.`)
-      }
-      
-      // Call the createGame function with new parameters - ensure proper types
-      const contractMaxPlayers = Math.max(2, Math.min(4, Math.floor(maxPlayers))) // Ensure uint8 range
-      const contractWinningScore = Math.max(50, Math.min(500, Math.floor(winningScore))) // Ensure valid range
-      const contractPlayerName = String(playerName).trim() // Ensure string
-      const contractAllowIslands = Boolean(allowIslands) // Ensure boolean
-      
-      console.log('📞 Calling createGame with args:', {
-        address: config.contractAddress,
-        functionName: 'createGame',
-        args: [contractMaxPlayers, contractAllowIslands, contractWinningScore, contractPlayerName],
-        account: primaryWallet.address
+      console.log('🎮 SIMPLIFIED: Game creation parameters:', {
+        maxPlayers: contractMaxPlayers,
+        allowIslands: contractAllowIslands,
+        winningScore: contractWinningScore,
+        playerName: contractPlayerName,
+        userDisplayAddress: primaryWallet.address
       })
       
-      // Add timeout handling and better error context
-      const createGamePromise = writeContract(walletClient, {
-        address: config.contractAddress,
-        abi: FivesGameABI.abi,
-        functionName: 'createGame',
-        args: [contractMaxPlayers, contractAllowIslands, contractWinningScore, contractPlayerName],
-        chain: config.chain,
-        account: primaryWallet.address as `0x${string}`,
-        gas: 1000000n // Set explicit gas limit
-      })
+      // Send transaction - the sendTransaction function will add playerAddress parameter
+      const txHash = await sendTransaction('createGame', [
+        contractMaxPlayers,
+        contractAllowIslands, 
+        contractWinningScore,
+        contractPlayerName
+      ])
       
-      // Set a timeout for the transaction
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('Transaction timed out after 30 seconds. This may be a wallet connection issue.'))
-        }, 30000)
-      })
-      
-      const txHash = await Promise.race([createGamePromise, timeoutPromise]) as `0x${string}`
-
-      console.log('📝 Create game transaction sent:', txHash)
+      console.log('✅ SIMPLIFIED: Game creation transaction sent:', txHash)
       
       // Wait for transaction confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-      console.log('✅ Transaction confirmed:', receipt)
-
-      // Parse the GameCreated event from the transaction logs to get the game ID
-      let gameId: number
-      try {
-        // Look for the GameCreated event in the logs
-        const gameCreatedEvent = receipt.logs.find(log => 
-          log.address.toLowerCase() === config.contractAddress.toLowerCase()
-        )
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
         
-        if (gameCreatedEvent && gameCreatedEvent.topics.length > 1 && gameCreatedEvent.topics[1]) {
-          // The game ID should be in the first topic after the event signature
-          gameId = parseInt(gameCreatedEvent.topics[1], 16)
-          console.log('🎯 Parsed game ID from event:', gameId)
-        } else {
-          // Fallback: use a counter from the last game
-          console.log('⚠️ Could not parse game ID from event, using fallback')
-          gameId = Math.floor(Date.now() / 1000) % 10000 // Simple fallback
-        }
-      } catch (parseError) {
-        console.warn('⚠️ Event parsing failed, using fallback:', parseError)
-        gameId = Math.floor(Date.now() / 1000) % 10000
-      }
-
-      console.log('🎮 Using game ID:', gameId)
-
-      // Try to fetch the game state from the contract
-      let newGame: BlockchainGame
-      let playerData: any[] | null = null
-      
-      try {
-        const gameData = await publicClient.readContract({
-          address: config.contractAddress,
-          abi: FivesGameABI.abi,
-          functionName: 'getGame',
-          args: [gameId]
-        }) as any[]
-
-        console.log('📊 Raw game data from contract:', gameData)
-
-        newGame = {
-          id: gameId,
-          state: Number(gameData[0]) || 0,
-          creator: gameData[1] || primaryWallet!.address,
-          maxPlayers: Number(gameData[2]) || maxPlayers,
-          currentPlayerIndex: Number(gameData[3]) || 0,
-          turnNumber: Number(gameData[4]) || 1,
-          playerAddresses: Array.isArray(gameData[7]) ? gameData[7] : [primaryWallet!.address],
-          playerScores: Array.isArray(gameData[8]) ? gameData[8].map((score: bigint) => Number(score)) : [0],
-          createdAt: Number(gameData[5]) || Math.floor(Date.now() / 1000),
-          allowIslands: gameData[6] !== undefined ? gameData[6] : allowIslands,
-          tilesRemaining: Number(gameData[9]) || 50 // New field for tile pool
-        }
-        
-        // Fetch player info from contract
-        try {
-          playerData = await publicClient.readContract({
-            address: config.contractAddress,
-            abi: FivesGameABI.abi,
-            functionName: 'getPlayer',
-            args: [gameId, primaryWallet!.address]
-          }) as any[]
-          
-          console.log('👤 Raw player data from contract:', playerData)
-        } catch (playerError) {
-          console.warn('⚠️ Could not fetch player data:', playerError)
-        }
-        
-      } catch (contractError) {
-        console.warn('⚠️ Could not fetch game data from contract, using defaults:', contractError)
-        
-        // Create a minimal game object with safe defaults
-        newGame = {
-          id: gameId,
-          state: 0, // Setup
-          creator: primaryWallet!.address,
-          maxPlayers,
-          currentPlayerIndex: 0,
-          turnNumber: 1,
-          playerAddresses: [primaryWallet!.address],
-          playerScores: [0],
-          createdAt: Math.floor(Date.now() / 1000),
-          allowIslands,
-          tilesRemaining: 50
-        }
-      }
-      
-      setCurrentGame(newGame)
-
-      // Set player info with safe defaults
-      if (playerData && Array.isArray(playerData)) {
-        setPlayerInfo({
-          name: playerData[0] || playerName,
-          score: Number(playerData[1]) || 0,
-          hand: Array.isArray(playerData[2]) ? playerData[2].map((tile: any) => Number(tile)) : [],
-          hasJoined: playerData[3] !== undefined ? playerData[3] : true,
-          lastMoveTime: Number(playerData[4]) || Math.floor(Date.now() / 1000)
-        })
-      } else {
-        setPlayerInfo({
-          name: playerName,
-          score: 0,
-          hand: [],
-          hasJoined: true,
-          lastMoveTime: Math.floor(Date.now() / 1000)
-        })
-      }
-
-      console.log('✅ Game created successfully!', { gameId, txHash })
-      return { gameId, txHash }
-      
-    } catch (err: any) {
-      console.error('❌ Failed to create game:', err)
-      setError(err.message || 'Failed to create game')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [primaryWallet, ensureConnection, createPublicClientWithFallback])
-
-  // Helper function to refresh game data
-  const refreshGameData = useCallback(async (gameId: number) => {
-    if (!primaryWallet) return
-    
-    try {
-      console.log('🔄 Refreshing game data for game:', gameId)
-      
-      // Get game data with retry logic
-      const rawGameData = await readContractWithFallback({
-        functionName: 'getGame',
-        args: [gameId]
-      })
-      
-      // Get player data with retry logic
-      const rawPlayerData = await readContractWithFallback({
-        functionName: 'getPlayer',
-        args: [gameId, primaryWallet.address]
-      })
-      
-      console.log('📊 Raw game data from contract:', rawGameData)
-      console.log('👤 Raw player data from contract:', rawPlayerData)
-      
-      // Transform contract data to UI format (ensure proper typing)
-      const gameArray = rawGameData as any[]
-      const playerArray = rawPlayerData as any[]
-      
-      const transformedGame: BlockchainGame = {
-        id: gameId,
-        state: Number(gameArray[0]) || 0,
-        creator: gameArray[1] || '',
-        maxPlayers: Number(gameArray[2]) || 2,
-        currentPlayerIndex: Number(gameArray[3]) || 0,
-        turnNumber: Number(gameArray[4]) || 1,
-        playerAddresses: Array.isArray(gameArray[7]) ? gameArray[7] : [],
-        playerScores: Array.isArray(gameArray[8]) ? gameArray[8].map((score: any) => Number(score)) : [],
-        createdAt: Number(gameArray[5]) || Math.floor(Date.now() / 1000),
-        allowIslands: gameArray[6] !== undefined ? gameArray[6] : false,
-        tilesRemaining: Number(gameArray[9]) || 50
-      }
-      
-      const transformedPlayerInfo: PlayerInfo = {
-        name: playerArray[0] || 'Player',
-        score: Number(playerArray[1]) || 0,
-        hand: Array.isArray(playerArray[2]) ? playerArray[2].map((tile: any) => Number(tile)) : [],
-        hasJoined: playerArray[3] !== undefined ? playerArray[3] : false,
-        lastMoveTime: Number(playerArray[4]) || Math.floor(Date.now() / 1000)
-      }
-      
-      setCurrentGame(transformedGame)
-      setPlayerInfo(transformedPlayerInfo)
-      
-      console.log('✅ Game data refreshed and transformed:', { 
-        transformedGame, 
-        transformedPlayerInfo 
-      })
-    } catch (error) {
-      console.warn('⚠️ Failed to refresh game data:', error)
-    }
-  }, [primaryWallet, readContractWithFallback])
-
-  // Place multiple tiles in a single turn (batch placement)
-  const playTurn = useCallback(async (gameId: number, placements: TilePlacement[]) => {
-    setLoading(true)
-    setError(null)
-    
-    try {
-      const { networkId, config } = await ensureConnection()
-      const publicClient = createPublicClientWithFallback()
-      
-      console.log('🎲 Playing turn with batch placement...', { gameId, placements })
-      
-      if (!primaryWallet) {
-        throw new Error('Wallet not available')
-      }
-
-      // Use Dynamic's recommended approach to get the wallet client
-      const walletClient = await primaryWallet.getWalletClient()
-
-      const txHash = await writeContract(walletClient, {
-        address: config.contractAddress,
-        abi: FivesGameABI.abi,
-        functionName: 'playTurn',
-        args: [gameId, placements],
-        chain: config.chain,
-        account: primaryWallet.address as `0x${string}`
-      })
-
-      console.log('📝 Turn placement transaction sent:', txHash)
-      
-      // Wait for confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-      console.log('✅ Turn placement confirmed:', receipt)
-      
-      // Refresh game and player data
-      await refreshGameData(gameId)
-      
-      console.log('✅ Turn played successfully!', { placements, txHash })
-      return txHash
-      
-    } catch (err: any) {
-      console.error('❌ Failed to play turn:', err)
-      setError(err.message || 'Failed to play turn')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [primaryWallet, ensureConnection, createPublicClientWithFallback, refreshGameData])
-
-  // Legacy single tile placement (wraps the new batch system)
-  const placeTile = useCallback(async (gameId: number, tileNumber: number, x: number, y: number) => {
-    const placements: TilePlacement[] = [{ number: tileNumber, x, y }]
-    return await playTurn(gameId, placements)
-  }, [playTurn])
-
-  // Skip turn to draw new tiles
-  const skipTurn = useCallback(async (gameId: number) => {
-    setLoading(true)
-    setError(null)
-    
-    try {
-      const { networkId, config } = await ensureConnection()
-      const publicClient = createPublicClientWithFallback()
-      
-      console.log('⏭️ Skipping turn to draw tiles...', { gameId })
-      
-      if (!primaryWallet) {
-        throw new Error('Wallet not available')
-      }
-
-      const walletClient = await primaryWallet.getWalletClient()
-
-      const txHash = await writeContract(walletClient, {
-        address: config.contractAddress,
-        abi: FivesGameABI.abi,
-        functionName: 'skipTurn',
-        args: [gameId],
-        chain: config.chain,
-        account: primaryWallet.address as `0x${string}`
-      })
-
-      console.log('📝 Skip turn transaction sent:', txHash)
-      
-      // Wait for confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-      console.log('✅ Skip turn confirmed:', receipt)
-      
-      // Refresh game and player data
-      await refreshGameData(gameId)
-      
-      console.log('✅ Turn skipped successfully!', { txHash })
-      return txHash
-      
-    } catch (err: any) {
-      console.error('❌ Failed to skip turn:', err)
-      setError(err.message || 'Failed to skip turn')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [primaryWallet, ensureConnection, createPublicClientWithFallback, refreshGameData])
-
-  // Get tile pool status with enhanced retry
-  const getTilePoolStatus = useCallback(async (gameId: number): Promise<TilePoolStatus> => {
-    try {
-      console.log('🎲 Fetching tile pool status...', { gameId })
-      
-      const tilePoolData = await readContractWithFallback({
-        functionName: 'getTilePoolStatus',
-        args: [gameId]
-      })
-      
-      console.log('📊 Tile pool status:', tilePoolData)
-      // Ensure proper type conversion from contract data
-      const remainingCounts = Array.isArray(tilePoolData) 
-        ? tilePoolData.map((count: any) => Number(count))
-        : Array(10).fill(0) // Fallback to empty pool
-        
-      return { remainingCounts }
-    } catch (error) {
-      console.warn('⚠️ Failed to get tile pool status:', error)
-      return { remainingCounts: Array(10).fill(0) }
-    }
-  }, [readContractWithFallback])
-
-  // Get all available games with enhanced retry
-  const getAllGames = useCallback(async (): Promise<BlockchainGame[]> => {
-    if (!primaryWallet?.address) {
-      console.log('❌ No wallet connected')
-      return []
-    }
-
-    try {
-      console.log('📋 Fetching all available games...')
-      
-      // Get next game ID to determine range
-      const nextGameId = await readContractWithFallback({
-        functionName: 'nextGameId'
-      })
-      
-      const games: BlockchainGame[] = []
-      const totalGames = Number(nextGameId) - 1
-
-      console.log('🔍 Total games to check:', totalGames)
-      
-      // Batch game fetches to reduce RPC calls
-      const batchSize = 5
-      for (let i = 1; i <= totalGames; i += batchSize) {
-        const batchPromises: Promise<BlockchainGame>[] = []
-        
-        for (let j = i; j < Math.min(i + batchSize, totalGames + 1); j++) {
-          batchPromises.push(
-            readContractWithFallback({
-              functionName: 'getGame',
-              args: [j]
-            }).then((gameData: any) => ({ 
-              id: j, 
-              state: Number(gameData[0]) || 0,
-              creator: gameData[1],
-              maxPlayers: Number(gameData[2]) || 2,
-              currentPlayerIndex: Number(gameData[3]) || 0,
-              turnNumber: Number(gameData[4]) || 1,
-              playerAddresses: gameData[7] || [],
-              playerScores: (gameData[8] || []).map((score: any) => Number(score)),
-              createdAt: Number(gameData[5]) || Math.floor(Date.now() / 1000),
-              allowIslands: gameData[6],
-              tilesRemaining: Number(gameData[9]) || 50
-            } as BlockchainGame))
-          )
-        }
-        
-        const batchResults = await Promise.allSettled(batchPromises)
-        
-        batchResults.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            games.push(result.value)
-          } else {
-            console.warn(`Failed to fetch game ${i + index}:`, result.reason)
+        // Try to extract game ID from logs
+        let gameId: number | null = null
+        if (receipt.logs && receipt.logs.length > 0) {
+          // Look for GameCreated event logs
+          for (const log of receipt.logs) {
+            try {
+              // The first log topic should contain the game ID for GameCreated event
+              if (log.topics && log.topics.length >= 2) {
+                gameId = parseInt(log.topics[1], 16) // Convert hex to decimal
+                console.log('🎮 SIMPLIFIED: Extracted game ID from logs:', gameId)
+                break
+              }
+            } catch (e) {
+              console.log('Could not parse log for game ID')
+            }
           }
-        })
-        
-        // Small delay between batches to avoid overwhelming the RPC
-        if (i + batchSize <= totalGames) {
-          await new Promise(resolve => setTimeout(resolve, 200))
         }
+        
+        // Return object with both txHash and gameId for compatibility
+        return { gameId, txHash }
       }
-
-      console.log('📋 Found games:', games.length)
-      return games.filter(game => game && typeof game.state !== 'undefined')
+      
+      return { gameId: null, txHash }
     } catch (error) {
-      console.error('❌ Failed to fetch all games:', error)
-      return []
+      console.error('❌ SIMPLIFIED: Failed to create game:', error)
+      setError(error instanceof Error ? error.message : 'Failed to create game')
+      throw error
+    } finally {
+      setLoading(false)
     }
-  }, [primaryWallet, readContractWithFallback])
+  }, [primaryWallet, sendTransaction, getPublicClient])
 
   // Join an existing game
   const joinGame = useCallback(async (gameId: number, playerName: string) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
     setLoading(true)
     setError(null)
     
     try {
-      const { networkId, config } = await ensureConnection()
-      const publicClient = createPublicClientWithFallback()
-      
-      console.log('👥 Joining blockchain game...', { gameId, playerName })
-      
-      if (!primaryWallet) {
-        throw new Error('Wallet not available')
-      }
-
-      const walletClient = await primaryWallet.getWalletClient()
-
-      const txHash = await writeContract(walletClient, {
-        address: config.contractAddress,
-        abi: FivesGameABI.abi,
-        functionName: 'joinGame',
-        args: [gameId, playerName],
-        chain: config.chain,
-        account: primaryWallet.address as `0x${string}`
+      console.log('🎮 SIMPLIFIED: Joining game with simplified approach...', {
+        gameId,
+        playerName,
+        userDisplayAddress: primaryWallet.address
       })
-
-      console.log('📝 Join game transaction sent:', txHash)
       
-      // Wait for confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-      console.log('✅ Join game confirmed:', receipt)
+      // Send transaction - the sendTransaction function will add playerAddress parameter
+      const txHash = await sendTransaction('joinGame', [gameId, playerName || 'Player'])
       
-      // Refresh game data
-      await refreshGameData(gameId)
+      console.log('✅ SIMPLIFIED: Join game transaction sent:', txHash)
       
-      console.log('✅ Joined game successfully!', { gameId, txHash })
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+      }
+      
       return txHash
-      
-    } catch (err: any) {
-      console.error('❌ Failed to join game:', err)
-      setError(err.message || 'Failed to join game')
-      throw err
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to join game:', error)
+      setError(error instanceof Error ? error.message : 'Failed to join game')
+      throw error
     } finally {
       setLoading(false)
     }
-  }, [primaryWallet, ensureConnection, createPublicClientWithFallback, refreshGameData])
+  }, [primaryWallet, sendTransaction, getPublicClient])
+
+  // Start a game (only game creator)
+  const startGame = useCallback(async (gameId: number) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('🎮 SIMPLIFIED: Starting game...', { gameId })
+      
+      const txHash = await sendTransaction('startGame', [gameId])
+      
+      console.log('✅ SIMPLIFIED: Start game transaction sent:', txHash)
+      
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+      }
+      
+      return txHash
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to start game:', error)
+      setError(error instanceof Error ? error.message : 'Failed to start game')
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [primaryWallet, sendTransaction, getPublicClient])
+
+  // Make a game move (alias for makeMove to support playTurn)
+  const makeMove = useCallback(async (gameId: number, tileNumber: number, x: number, y: number) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('🎮 SIMPLIFIED: Making move...', { gameId, tileNumber, x, y })
+      
+      const txHash = await sendTransaction('makeMove', [gameId, tileNumber, x, y])
+      
+      console.log('✅ SIMPLIFIED: Move transaction sent:', txHash)
+      
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+      }
+      
+      return txHash
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to make move:', error)
+      setError(error instanceof Error ? error.message : 'Failed to make move')
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [primaryWallet, sendTransaction, getPublicClient])
+
+  // Play turn (batch moves) - properly calls contract's playTurn function
+  const playTurn = useCallback(async (gameId: number, placements: TilePlacement[]) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    if (!placements || placements.length === 0) {
+      throw new Error('No tile placements provided')
+    }
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('🎮 SIMPLIFIED: Playing turn with batch placements...', { gameId, placements })
+      
+      // Format placements for contract (array of structs)
+      const formattedPlacements = placements.map(p => ({
+        number: p.number,
+        x: p.x,
+        y: p.y
+      }))
+      
+      const txHash = await sendTransaction('playTurn', [gameId, formattedPlacements])
+      
+      console.log('✅ SIMPLIFIED: Play turn transaction sent:', txHash)
+      
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+        
+        // 🔄 REFRESH PLAYER HAND after successful transaction
+        console.log('🔄 SIMPLIFIED: Refreshing player hand after successful turn...')
+        try {
+          // Call getPlayerInfo directly to get fresh data
+          const config = getContractConfig()
+          if (publicClient && config) {
+            const playerData = await publicClient.readContract({
+              address: config.contractAddress as `0x${string}`,
+              abi: FivesGameABI.abi,
+              functionName: 'getPlayer',
+              args: [gameId, primaryWallet.address]
+            }) as any[]
+            
+            const updatedPlayerInfo: PlayerInfo = {
+              name: playerData[0] as string,
+              score: Number(playerData[1]),
+              hand: (playerData[2] as bigint[]).map(tile => Number(tile)),
+              hasJoined: playerData[3] as boolean,
+              lastMoveTime: Number(playerData[4])
+            }
+            
+            setPlayerInfo(updatedPlayerInfo)
+            console.log('✅ SIMPLIFIED: Player hand refreshed:', updatedPlayerInfo.hand)
+          }
+        } catch (refreshError) {
+          console.warn('⚠️ SIMPLIFIED: Could not refresh player hand:', refreshError.message)
+        }
+      }
+      
+      return txHash
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to play turn:', error)
+      setError(error instanceof Error ? error.message : 'Failed to play turn')
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [primaryWallet, sendTransaction, getPublicClient, getContractConfig])
+
+  // Draw a tile
+  const drawTile = useCallback(async (gameId: number) => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('🎮 SIMPLIFIED: Drawing tile...', { gameId })
+      
+      const txHash = await sendTransaction('drawTile', [gameId])
+      
+      console.log('✅ SIMPLIFIED: Draw tile transaction sent:', txHash)
+      
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+      }
+      
+      return txHash
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to draw tile:', error)
+      setError(error instanceof Error ? error.message : 'Failed to draw tile')
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [primaryWallet, sendTransaction, getPublicClient])
+
+  // Skip turn - properly calls contract's skipTurn function
+  const skipTurn = useCallback(async (gameId: number): Promise<string> => {
+    if (!primaryWallet) throw new Error('Wallet not connected')
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('🎮 SIMPLIFIED: Skipping turn...', { gameId })
+      
+      const txHash = await sendTransaction('skipTurn', [gameId])
+      
+      console.log('✅ SIMPLIFIED: Skip turn transaction sent:', txHash)
+      
+      // Wait for transaction confirmation
+      const publicClient = getPublicClient()
+      if (publicClient) {
+        console.log('⏳ SIMPLIFIED: Waiting for transaction confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        console.log('✅ SIMPLIFIED: Transaction confirmed:', receipt)
+      }
+      
+      return txHash
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to skip turn:', error)
+      setError(error instanceof Error ? error.message : 'Failed to skip turn')
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }, [primaryWallet, sendTransaction, getPublicClient])
+
+  // Read game state from contract
+  const getGameState = useCallback(async (gameId: number): Promise<BlockchainGame | null> => {
+    const publicClient = getPublicClient()
+    const config = getContractConfig()
+    
+    if (!publicClient || !config) {
+      console.log(`❌ SIMPLIFIED: getGameState(${gameId}) - No publicClient or config`, {
+        hasPublicClient: !!publicClient,
+        hasConfig: !!config
+      })
+      return null
+    }
+    
+    try {
+      console.log(`🔍 SIMPLIFIED: Reading game state for game: ${gameId}`)
+      console.log(`🔍 SIMPLIFIED: Using contract: ${config.contractAddress}`)
+      
+      const gameData = await publicClient.readContract({
+        address: config.contractAddress as `0x${string}`,
+        abi: FivesGameABI.abi,
+        functionName: 'getGame',
+        args: [gameId]
+      }) as any[]
+      
+      console.log(`📊 SIMPLIFIED: Raw game data from getGame(${gameId}):`, gameData)
+      
+      // Validate the data structure
+      if (!Array.isArray(gameData) || gameData.length < 10) {
+        console.error(`❌ SIMPLIFIED: Invalid game data structure for game ${gameId}:`, gameData)
+        return null
+      }
+      
+      // getGame() returns: (state, creator, maxPlayers, currentPlayerIndex, turnNumber, createdAt, allowIslands, playerAddresses, playerScores, tilesRemaining, winningScore)
+      const game: BlockchainGame = {
+        id: gameId,
+        state: Number(gameData[0]),           // GameState
+        creator: gameData[1] as string,       // address creator
+        maxPlayers: Number(gameData[2]),      // uint8 maxPlayers
+        currentPlayerIndex: Number(gameData[3]), // uint8 currentPlayerIndex
+        turnNumber: Number(gameData[4]),      // uint256 turnNumber
+        playerAddresses: gameData[7] as string[], // address[] playerAddresses
+        playerScores: (gameData[8] as bigint[]).map(score => Number(score)), // uint256[] playerScores
+        createdAt: Number(gameData[5]),       // uint256 createdAt
+        allowIslands: gameData[6] as boolean, // bool allowIslands
+        tilesRemaining: Number(gameData[9])   // uint256 tilesRemaining
+      }
+      
+      console.log(`🎮 SIMPLIFIED: Parsed game state for game ${gameId}:`, {
+        id: game.id,
+        state: game.state,
+        creator: game.creator,
+        maxPlayers: game.maxPlayers,
+        playerCount: game.playerAddresses.length,
+        turnNumber: game.turnNumber
+      })
+      
+      return game
+    } catch (error) {
+      console.error(`❌ SIMPLIFIED: Failed to read game state for game ${gameId}:`, error)
+      console.error(`❌ SIMPLIFIED: Error details:`, {
+        message: error.message,
+        cause: error.cause,
+        stack: error.stack?.slice(0, 200)
+      })
+      return null
+    }
+  }, [getPublicClient, getContractConfig])
+
+  // Get all games - for backward compatibility
+  const getAllGames = useCallback(async (): Promise<BlockchainGame[]> => {
+    console.log('🔍 SIMPLIFIED: getAllGames() called, checking prerequisites...')
+    
+    const publicClient = getPublicClient()
+    const config = getContractConfig()
+    
+    console.log('🔍 SIMPLIFIED: Prerequisites check:', {
+      hasPublicClient: !!publicClient,
+      hasConfig: !!config,
+      currentNetwork,
+      walletAddress: primaryWallet?.address,
+      contractAddress: config?.contractAddress,
+      networkName: config?.name
+    })
+    
+    if (!publicClient || !config) {
+      console.log('❌ SIMPLIFIED: No publicClient or config available', { 
+        hasPublicClient: !!publicClient, 
+        hasConfig: !!config,
+        currentNetwork,
+        configDetails: config,
+        walletConnected: !!primaryWallet,
+        supportedNetworks: Object.keys(CONTRACT_CONFIG.networks)
+      })
+      return []
+    }
+    
+    try {
+      console.log('🔍 SIMPLIFIED: Reading all games...')
+      console.log('🔍 SIMPLIFIED: Using config:', {
+        contractAddress: config.contractAddress,
+        networkName: config.name,
+        currentNetwork: currentNetwork
+      })
+      
+      // Test basic connectivity first
+      try {
+        console.log('🧪 SIMPLIFIED: Testing basic contract connectivity...')
+        const blockNumber = await publicClient.getBlockNumber()
+        console.log('✅ SIMPLIFIED: RPC connection working, latest block:', blockNumber.toString())
+      } catch (connectError) {
+        console.error('❌ SIMPLIFIED: RPC connection failed:', connectError)
+        throw new Error(`RPC connection failed: ${connectError.message}`)
+      }
+      
+      // Try to get total number of games first
+      let totalGames = 0
+      try {
+        console.log('🧪 SIMPLIFIED: Calling nextGameId...')
+        const nextGameId = await publicClient.readContract({
+          address: config.contractAddress as `0x${string}`,
+          abi: FivesGameABI.abi,
+          functionName: 'nextGameId',
+          args: []
+        }) as bigint
+        totalGames = Number(nextGameId) - 1 // nextGameId is the next ID to use, so subtract 1 for current count
+        console.log('📊 SIMPLIFIED: nextGameId from contract:', nextGameId.toString(), 'totalGames:', totalGames)
+      } catch (e) {
+        console.error('❌ SIMPLIFIED: Could not get nextGameId:', e)
+        console.log('🔄 SIMPLIFIED: Falling back to manual game detection...')
+        totalGames = 10 // fallback - try first 10 games
+      }
+      
+      console.log('📊 SIMPLIFIED: Total games to fetch:', totalGames)
+      
+      if (totalGames === 0) {
+        console.log('📝 SIMPLIFIED: No games found (nextGameId indicates 0 games)')
+        return []
+      }
+      
+      const games: BlockchainGame[] = []
+      
+      // Fetch each game individually with detailed logging
+      for (let i = 1; i <= totalGames; i++) {
+        try {
+          console.log(`🔍 SIMPLIFIED: Fetching game ${i}...`)
+          const game = await getGameState(i)
+          if (game) {
+            console.log(`✅ SIMPLIFIED: Game ${i} fetched successfully:`, {
+              id: game.id,
+              state: game.state,
+              creator: game.creator.slice(0, 8) + '...',
+              players: game.playerAddresses.length,
+              maxPlayers: game.maxPlayers
+            })
+            games.push(game)
+          } else {
+            console.log(`⚠️ SIMPLIFIED: Game ${i} returned null from getGameState`)
+          }
+        } catch (error) {
+          console.log(`❌ SIMPLIFIED: Game ${i} error:`, error.message)
+          // Don't break - continue trying other games to see full picture
+        }
+      }
+      
+      console.log(`🎮 SIMPLIFIED: Final fetched games array (${games.length} games):`, games.map(g => ({
+        id: g.id,
+        state: ['Setup', 'InProgress', 'Completed', 'Cancelled'][g.state] || g.state,
+        playerCount: g.playerAddresses.length,
+        creator: g.creator.slice(0, 8) + '...'
+      })))
+      
+      return games
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to read all games:', error)
+      console.error('❌ SIMPLIFIED: Error details:', {
+        message: error.message,
+        cause: error.cause,
+        stack: error.stack?.slice(0, 300)
+      })
+      return []
+    }
+  }, [getPublicClient, getContractConfig, getGameState, currentNetwork, primaryWallet])
+
+  // Get player information
+  const getPlayerInfo = useCallback(async (gameId: number, playerAddress: string): Promise<PlayerInfo | null> => {
+    const publicClient = getPublicClient()
+    const config = getContractConfig()
+    
+    if (!publicClient || !config) return null
+    
+    try {
+      console.log('🔍 SIMPLIFIED: Reading player info for:', { gameId, playerAddress })
+      
+      const playerData = await publicClient.readContract({
+        address: config.contractAddress as `0x${string}`,
+        abi: FivesGameABI.abi,
+        functionName: 'getPlayer',
+        args: [gameId, playerAddress]
+      }) as any[]
+      
+      console.log('📊 SIMPLIFIED: Raw player data:', playerData)
+      
+      // getPlayer() returns: (name, score, hand, hasJoined, lastMoveTime)
+      const playerInfo: PlayerInfo = {
+        name: playerData[0] as string,
+        score: Number(playerData[1]),
+        hand: (playerData[2] as bigint[]).map(tile => Number(tile)),
+        hasJoined: playerData[3] as boolean,
+        lastMoveTime: Number(playerData[4])
+      }
+      
+      console.log('👤 SIMPLIFIED: Parsed player info:', playerInfo)
+      
+      return playerInfo
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to read player info:', error)
+      return null
+    }
+  }, [getPublicClient, getContractConfig])
+
+  // Get tile pool status
+  const getTilePoolStatus = useCallback(async (gameId: number): Promise<TilePoolStatus | null> => {
+    const publicClient = getPublicClient()
+    const config = getContractConfig()
+    
+    if (!publicClient || !config) return null
+    
+    try {
+      console.log('🔍 SIMPLIFIED: Reading tile pool status for game:', gameId)
+      
+      const poolData = await publicClient.readContract({
+        address: config.contractAddress as `0x${string}`,
+        abi: FivesGameABI.abi,
+        functionName: 'getTilePoolStatus',
+        args: [gameId]
+      }) as bigint[]
+      
+      console.log('📊 SIMPLIFIED: Raw pool data:', poolData)
+      
+      const tilePoolStatus: TilePoolStatus = {
+        remainingCounts: poolData.map(count => Number(count))
+      }
+      
+      console.log('🎲 SIMPLIFIED: Parsed tile pool status:', tilePoolStatus)
+      
+      return tilePoolStatus
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to read tile pool status:', error)
+      return null
+    }
+  }, [getPublicClient, getContractConfig])
+
+  // Get placed tiles on the board
+  const getPlacedTiles = useCallback(async (gameId: number): Promise<TilePlacement[]> => {
+    const publicClient = getPublicClient()
+    const config = getContractConfig()
+    
+    if (!publicClient || !config) return []
+    
+    try {
+      console.log('🔍 SIMPLIFIED: Reading placed tiles for game:', gameId)
+      
+      const tilesData = await publicClient.readContract({
+        address: config.contractAddress as `0x${string}`,
+        abi: FivesGameABI.abi,
+        functionName: 'getPlacedTiles',
+        args: [gameId]
+      }) as any[]
+      
+      console.log('📊 SIMPLIFIED: Raw tiles data:', tilesData)
+      
+      // getPlacedTiles() returns: (xPositions[], yPositions[], numbers[], turnNumbers[])
+      const xPositions = tilesData[0] as bigint[]
+      const yPositions = tilesData[1] as bigint[]
+      const numbers = tilesData[2] as bigint[]
+      
+      const placedTiles: TilePlacement[] = []
+      for (let i = 0; i < numbers.length; i++) {
+        placedTiles.push({
+          number: Number(numbers[i]),
+          x: Number(xPositions[i]),
+          y: Number(yPositions[i])
+        })
+      }
+      
+      console.log('🎲 SIMPLIFIED: Parsed placed tiles:', placedTiles)
+      
+      return placedTiles
+    } catch (error) {
+      console.error('❌ SIMPLIFIED: Failed to read placed tiles:', error)
+      return []
+    }
+  }, [getPublicClient, getContractConfig])
+
+  // Get the latest contract address for the current network
+  const getLatestContractAddress = async (): Promise<string | null> => {
+    const config = getContractConfig()
+    return config?.contractAddress || null
+  }
+
+  // Helper methods for backward compatibility
+  const refreshNetworkState = useCallback(async () => {
+    // This would refresh network state, for now just log
+    console.log('🔄 SIMPLIFIED: refreshNetworkState called')
+  }, [])
+
+  // Get the contract address method (for backward compatibility)
+  const getContractAddressMethod = useCallback(async (): Promise<string | null> => {
+    const config = getContractConfig()
+    return config?.contractAddress || null
+  }, [getContractConfig])
+
+  // Debug wallet connection for sponsorship
+  useEffect(() => {
+    if (primaryWallet) {
+      console.log('🔍 WALLET DEBUG: Primary wallet connected:', {
+        address: primaryWallet.address,
+        connected: primaryWallet.connected,
+        connector: {
+          name: primaryWallet.connector?.name,
+          type: primaryWallet.connector?.type,
+          id: primaryWallet.connector?.id
+        },
+        canUseSponsorship: canUseSponsorship()
+      })
+    } else {
+      console.log('🔍 WALLET DEBUG: No primary wallet')
+    }
+  }, [primaryWallet, canUseSponsorship])
+
+  // Test sponsored transactions (for debugging)
+  const testSponsoredTransaction = useCallback(async () => {
+    if (!primaryWallet) {
+      console.log('❌ No wallet connected')
+      return false
+    }
+
+    console.log('🧪 TESTING SPONSORED TRANSACTIONS')
+    console.log('=' .repeat(50))
+    
+    // Step 1: Check basic wallet info
+    console.log('📊 WALLET INFO:')
+    console.log('  Address:', primaryWallet.address)
+    console.log('  Connected:', primaryWallet.connected)
+    console.log('  Connector:', primaryWallet.connector?.name || 'Unknown')
+    console.log('  Connector Key:', primaryWallet.connector?.key || 'Unknown')
+    
+    // Step 2: Check sponsorship capability
+    const canSponsor = canUseSponsorship()
+    console.log('💰 SPONSORSHIP CHECK:', canSponsor)
+    
+    if (!canSponsor) {
+      console.log('❌ Sponsorship not available - need ZeroDev smart wallet')
+      return false
+    }
+    
+    // Step 3: Test AA provider access
+    try {
+      const connector = primaryWallet.connector as any
+      console.log('🔍 CONNECTOR METHODS:', Object.keys(connector || {}))
+      
+      const aaProvider = await connector.getAccountAbstractionProvider?.()
+      console.log('🔧 AA PROVIDER:', {
+        hasProvider: !!aaProvider,
+        type: aaProvider ? (aaProvider as any).constructor?.name : 'None',
+        methods: aaProvider ? Object.keys(aaProvider) : []
+      })
+      
+      if (aaProvider) {
+        console.log('✅ AA Provider available - sponsored transactions should work!')
+        return true
+      } else {
+        console.log('❌ AA Provider not available')
+        return false
+      }
+    } catch (error) {
+      console.error('❌ Error testing AA provider:', error)
+      return false
+    }
+  }, [primaryWallet, canUseSponsorship])
 
   return {
     // State
     loading,
-    currentGame,
-    playerInfo,
     error,
-    isConnected: !!primaryWallet,
-    userAddress: primaryWallet?.address,
-    contractAddress: getNetworkConfig().contractAddress,
+    currentGame,
+    playerInfo: playerInfo,
     currentNetwork,
-    networkName: getNetworkConfig().name,
+    userAddress: primaryWallet?.address || null,
+    contractAddress,
+    networkName,
+    isConnected,
+    contractInteractionAddress,
     
-    // Functions
+    // Game actions
     createGame,
     joinGame,
-    playTurn,     // New batch placement function
-    placeTile,    // Legacy single tile placement
-    skipTurn,     // New skip turn function
-    getTilePoolStatus, // New tile pool status function
-    getAllGames,
-    refreshGameData,
-    clearGame: () => {}, // Placeholder for compatibility
+    startGame,
+    makeMove,
+    drawTile,
+    playTurn,
+    skipTurn,
     
-    // Helper functions
-    ensureConnection
+    // Data reading
+    getGameState,
+    getPlayerInfo,
+    getTilePoolStatus,
+    getPlacedTiles,
+    getAllGames,
+    
+    // Utilities
+    canUseSponsorship,
+    autoFundWallet,
+    getLatestContractAddress,
+    getContractConfig,
+    getPublicClient,
+    refreshNetworkState,
+    getContractAddress: getContractAddressMethod,
+    
+    // Config
+    isNetworkSupported,
+    getConfigSummary,
+    
+    // Debugging
+    testSponsoredTransaction
   }
 } 

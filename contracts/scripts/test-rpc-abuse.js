@@ -1,0 +1,25 @@
+console.log("🔍 RPC Abuse Test - Starting Hardhat Node Monitor");
+console.log("📋 Run this script while using the frontend to check for excessive calls");
+console.log("⚠️ Look for repeated getTileAt calls in the Hardhat logs");
+console.log("");
+console.log("✅ If fixed, you should see:");
+console.log("   - Very few getTileAt calls (only on manual refresh)");
+console.log("   - No infinite loops of contract calls");
+console.log("   - Calls only when user clicks refresh button");
+console.log("");
+console.log("❌ If still broken, you'll see:");
+console.log("   - Hundreds of getTileAt calls");
+console.log("   - Continuous stream of contract calls");
+console.log("   - Calls happening automatically without user action");
+console.log("");
+console.log("📊 Current contract: 0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e");
+console.log("🎮 Test games available: Game ID 1, 3, 4");
+console.log("");
+console.log("💡 To test:");
+console.log("1. Start the frontend: npm start");
+console.log("2. Load a game");
+console.log("3. Watch this terminal for excessive calls");
+console.log("4. Try manual refresh button");
+console.log("5. Verify only expected calls are made");
+
+process.exit(0); 

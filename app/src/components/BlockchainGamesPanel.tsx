@@ -34,11 +34,15 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     isConnected,
     getAllGames,
     contractAddress,
-    networkName
+    networkName,
+    currentNetwork,
+    refreshNetworkState,
+    contractInteractionAddress
   } = useBlockchainGame()
   
   const { primaryWallet } = useDynamicContext()
   const userAddress = primaryWallet?.address
+  const actualContractAddress = contractInteractionAddress || userAddress
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [gameName, setGameName] = useState('')
@@ -46,25 +50,107 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
   const [allowIslands, setAllowIslands] = useState(false)
   const [availableGames, setAvailableGames] = useState<BlockchainGame[]>([])
   const [refreshingGames, setRefreshingGames] = useState(false)
+  const [lastNetworkUpdate, setLastNetworkUpdate] = useState<Date | null>(null)
 
-  // Refresh available games when connected
+  // Track when network state changes
   useEffect(() => {
-    if (isConnected) {
-      refreshGamesList()
+    if (currentNetwork && contractAddress) {
+      setLastNetworkUpdate(new Date())
+      console.log('📊 BlockchainGamesPanel detected network change:', {
+        currentNetwork,
+        contractAddress,
+        networkName,
+        timestamp: new Date().toISOString()
+      })
     }
-  }, [isConnected])
+  }, [currentNetwork, contractAddress, networkName])
+
+  // Manual network refresh function
+  const handleNetworkRefresh = async () => {
+    if (refreshNetworkState) {
+      console.log('🔄 User triggered manual network refresh')
+      await refreshNetworkState()
+    }
+  }
+
+  // Refresh available games when connected or network changes
+  useEffect(() => {
+    console.log('🔄 === NETWORK CHANGE DETECTION ===')
+    console.log('  Trigger values:', {
+      isConnected,
+      currentNetwork, 
+      contractAddress,
+      networkName
+    })
+    
+    if (isConnected) {
+      console.log('🔄 Network/connection changed, refreshing games list...')
+      console.log('  Network:', networkName, 'Chain ID:', currentNetwork)
+      console.log('  Contract:', contractAddress)
+      refreshGamesList()
+    } else {
+      // Clear games list when not connected
+      console.log('❌ Not connected, clearing games list')
+      setAvailableGames([])
+    }
+    
+    console.log('🔄 === NETWORK CHANGE DETECTION COMPLETE ===')
+  }, [isConnected, currentNetwork, contractAddress, networkName]) // Added networkName for more comprehensive detection
 
   const refreshGamesList = async () => {
-    if (!isConnected) return
+    if (!isConnected) {
+      console.log('❌ Refresh skipped - not connected')
+      return
+    }
+    
+    console.log('🔄 === REFRESH GAMES LIST STARTED ===')
+    console.log('  Current state:', {
+      isConnected,
+      userAddress,
+      contractAddress,
+      networkName,
+      currentNetwork
+    })
     
     setRefreshingGames(true)
     try {
+      console.log('📋 Calling getAllGames() from hook...')
+      console.log('📋 Contract being queried:', {
+        networkName,
+        contractAddress,
+        chainId: currentNetwork,
+        contractMatches: {
+          isBaseMainnet: currentNetwork === 8453,
+          isHardhatLocal: currentNetwork === 31337,
+          isKnownNetwork: [8453, 31337].includes(currentNetwork || 0)
+        },
+        hasValidContract: !!contractAddress
+      })
+      
       const games = await getAllGames()
+      
+      console.log('📋 getAllGames() returned:', {
+        gamesCount: games.length,
+        gameIds: games.map(g => g.id),
+        contractUsed: contractAddress,
+        networkUsed: networkName,
+        games: games
+      })
+      
       setAvailableGames(games)
+      console.log('✅ Games list updated successfully')
+      
     } catch (error) {
-      console.error('Failed to refresh games list:', error)
+      console.error('❌ Error in refreshGamesList:', error)
+      console.error('  Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      })
+      setAvailableGames([]) // Clear on error
     } finally {
       setRefreshingGames(false)
+      console.log('🔄 === REFRESH GAMES LIST COMPLETED ===')
     }
   }
 
@@ -75,11 +161,54 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     }
 
     try {
-      await createGame(maxPlayers, allowIslands, 100, gameName.trim())
+      console.log('🎮 Creating game from BlockchainGamesPanel...')
+      const result = await createGame(maxPlayers, allowIslands, 100, gameName.trim())
+      console.log('✅ Game created, result:', result)
+      
       setShowCreateForm(false)
       setGameName('')
-      // Refresh the games list after creating
-      await refreshGamesList()
+      
+      // Refresh the games list after creating with extended retry logic
+      console.log('🔄 Refreshing games list after creation...')
+      
+      // For single-player games, immediately navigate since creator is auto-joined
+      if (maxPlayers === 1 && result?.gameId && onJoinGame) {
+        console.log('🚀 Single-player game: Auto-navigating immediately to created game:', result.gameId)
+        onJoinGame(result.gameId)
+        
+        // Still refresh in background for UI consistency
+        setTimeout(async () => {
+          await refreshGamesList()
+        }, 2000)
+        
+        return // Exit early for single-player
+      }
+      
+      // For multi-player games, wait longer and retry if needed
+      let retries = 0
+      const maxRetries = 3
+      
+      while (retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 + (retries * 500))) // Progressive delay
+        await refreshGamesList()
+        
+        // Check if we can see the created game
+        const createdGame = availableGames.find(g => g.id === result?.gameId)
+        if (createdGame) {
+          console.log('✅ Created game found in list after refresh')
+          break
+        }
+        
+        retries++
+        console.log(`🔄 Retry ${retries}/${maxRetries} - game not yet visible`)
+      }
+      
+      // Navigate to the game if callback is provided
+      if (result?.gameId && onJoinGame) {
+        console.log('🚀 Multi-player game: Navigating to created game:', result.gameId)
+        onJoinGame(result.gameId)
+      }
+      
     } catch (error) {
       console.error('Failed to create game:', error)
       alert('Failed to create game. Check console for details.')
@@ -129,9 +258,11 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
   }
 
   // Debug logging - this will show in the browser console
-  console.log('🔍 BlockchainGamesPanel state:', {
+  console.log('🔍 BlockchainGamesPanel state (ZeroDev-aware):', {
     isConnected,
-    userAddress,
+    userDisplayAddress: userAddress,
+    contractInteractionAddress: actualContractAddress,
+    isZeroDev: actualContractAddress !== userAddress,
     contractAddress,
     loading,
     error,
@@ -140,17 +271,75 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
     gameName
   })
 
+  // NEW: Real-time network state debugging
+  console.log('🌐 BlockchainGamesPanel NETWORK STATE:', {
+    currentNetwork,
+    networkName,
+    contractAddress,
+    lastNetworkUpdate: lastNetworkUpdate?.toISOString(),
+    displayValues: {
+      networkDisplay: networkName || 'Unknown Network',
+      chainIdDisplay: currentNetwork || 'Unknown',
+      contractDisplay: contractAddress ? `${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}` : 'Not Connected'
+    }
+  })
+
   return (
     <div css={panelStyle}>
       <h2 css={titleStyle}>⛓️ Blockchain Games</h2>
-      <div css={contractStyle}>
-        Contract: {contractAddress ? `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}` : 'Not Connected'} ({networkName || 'Unknown Network'})
-      </div>
       
-      {/* Debug info */}
-      <div css={debugStyle}>
-        Status: {isConnected ? '✅ Connected' : '❌ Not Connected'}
-        {isConnected && <div>Wallet: {userAddress}</div>}
+      {/* Enhanced Network & Contract Display */}
+      <div css={networkDisplayStyle}>
+        <div css={networkInfoStyle}>
+          <span css={networkLabelStyle}>🌐 Network:</span>
+          <span css={networkValueStyle}>{networkName || 'Unknown Network'}</span>
+          <span css={chainIdStyle}>(Chain ID: {currentNetwork || 'Unknown'})</span>
+        </div>
+        <div css={contractInfoStyle}>
+          <span css={contractLabelStyle}>📄 Contract:</span>
+          <span css={contractAddressStyle}>
+            {contractAddress ? `${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}` : 'Not Connected'}
+          </span>
+          <button 
+            css={copyButtonStyle}
+            onClick={() => {
+              if (contractAddress) {
+                navigator.clipboard.writeText(contractAddress)
+                console.log('📋 Copied contract address:', contractAddress)
+              }
+            }}
+            disabled={!contractAddress}
+            title="Copy full contract address"
+          >
+            📋
+          </button>
+        </div>
+        {/* Network Status Indicator */}
+        <div css={statusIndicatorStyle}>
+          {isConnected ? (
+            <span css={connectedStyle}>✅ Connected & Ready</span>
+          ) : (
+            <span css={disconnectedStyle}>❌ Not Connected</span>
+          )}
+          {lastNetworkUpdate && (
+            <span css={timestampStyle}>
+              (Updated: {lastNetworkUpdate.toLocaleTimeString()})
+            </span>
+          )}
+        </div>
+        
+        {/* Manual Network Refresh Button */}
+        {isConnected && (
+          <div css={networkRefreshStyle}>
+            <button 
+              css={networkRefreshButtonStyle}
+              onClick={handleNetworkRefresh}
+              title="Manually refresh network detection"
+            >
+              🔄 Refresh Network
+            </button>
+          </div>
+        )}
       </div>
       
       {!isConnected ? (
@@ -181,6 +370,16 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
               >
                 {refreshingGames ? '⟳' : '🔄'} Refresh
               </button>
+            </div>
+            
+            {/* Contract Source Indicator */}
+            <div css={contractSourceStyle}>
+              <span css={sourceInfoStyle}>
+                📄 Loading games from: <strong>{networkName}</strong> contract
+              </span>
+              <span css={contractShortStyle}>
+                ({contractAddress ? `${contractAddress.slice(0, 6)}...${contractAddress.slice(-6)}` : 'N/A'})
+              </span>
             </div>
 
             {availableGames.length === 0 ? (
@@ -216,33 +415,123 @@ export function BlockchainGamesPanel({ onJoinGame }: BlockchainGamesPanelProps =
                       </div>
                     </div>
                     <div css={gameCardActionsStyle}>
-                      {game.state === 0 && game.playerAddresses.length < game.maxPlayers && 
-                       !game.playerAddresses.includes(userAddress!) ? (
-                        <button
-                          css={joinButtonStyle}
-                          onClick={() => handleJoinGame(game.id)}
-                          disabled={loading}
-                        >
-                          {loading ? 'Joining...' : 'Join Game'}
-                        </button>
-                      ) : game.playerAddresses.includes(userAddress!) ? (
-                        <div css={joinedActionsStyle}>
-                          <span css={alreadyJoinedStyle}>✅ Joined</span>
-                          <button
-                            css={playGameButtonStyle}
-                            onClick={() => {
-                              console.log('🎮 Entering joined game:', game.id)
-                              if (onJoinGame) {
-                                onJoinGame(game.id)
-                              }
-                            }}
-                          >
-                            🎯 Play Game
-                          </button>
-                        </div>
-                      ) : (
-                        <span css={gameFullStyle}>Game Full</span>
-                      )}
+                      {(() => {
+                        // ✅ Case-insensitive address comparison using correct address
+                        const userInGame = game.playerAddresses.some(addr => 
+                          addr.toLowerCase() === actualContractAddress!.toLowerCase()
+                        )
+                        
+                        // DEBUG: Log game state for single-player games
+                        if (game.maxPlayers === 1) {
+                          console.log('🎮 Single-player game debug (ZeroDev-aware):', {
+                            gameId: game.id,
+                            state: game.state,
+                            maxPlayers: game.maxPlayers,
+                            playerCount: game.playerAddresses.length,
+                            userDisplayAddress: userAddress!,
+                            actualContractAddress: actualContractAddress!,
+                            isZeroDev: actualContractAddress !== userAddress,
+                            playerAddresses: game.playerAddresses,
+                            userInGame,
+                            isCreator: game.creator.toLowerCase() === actualContractAddress!.toLowerCase(),
+                            gameStateText: game.state === 0 ? 'Setup' : game.state === 1 ? 'In Progress' : 'Other'
+                          })
+                        }
+                        
+                        // SPECIAL CASE: Single-player games created by current user
+                        if (game.maxPlayers === 1 && game.creator.toLowerCase() === actualContractAddress!.toLowerCase()) {
+                          return (
+                            <div css={joinedActionsStyle}>
+                              <span css={alreadyJoinedStyle}>✅ Your Game</span>
+                              <div css={gameActionsContainerStyle}>
+                                <button
+                                  css={playGameButtonStyle}
+                                  onClick={() => {
+                                    console.log('🎮 Entering your single-player game:', game.id)
+                                    window.location.pathname = `/game/${game.id}/play`
+                                  }}
+                                >
+                                  🎯 Play Solo
+                                </button>
+                                <button
+                                  css={linkButtonStyle}
+                                  onClick={() => {
+                                    const gameUrl = `${window.location.origin}/game/${game.id}`
+                                    navigator.clipboard.writeText(gameUrl)
+                                    console.log('📋 Copied game URL:', gameUrl)
+                                    alert('Game URL copied to clipboard!')
+                                  }}
+                                  title="Copy direct link to this game"
+                                >
+                                  🔗
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        }
+                        
+                        // For setup games with space (multi-player)
+                        if (game.state === 0 && game.playerAddresses.length < game.maxPlayers && !userInGame) {
+                          return (
+                            <div css={gameActionsContainerStyle}>
+                              <button
+                                css={joinButtonStyle}
+                                onClick={() => handleJoinGame(game.id)}
+                                disabled={loading}
+                              >
+                                {loading ? 'Joining...' : 'Join Game'}
+                              </button>
+                              <button
+                                css={linkButtonStyle}
+                                onClick={() => {
+                                  const gameUrl = `${window.location.origin}/game/${game.id}`
+                                  navigator.clipboard.writeText(gameUrl)
+                                  console.log('📋 Copied game URL:', gameUrl)
+                                  alert('Game URL copied to clipboard!')
+                                }}
+                                title="Copy direct link to this game"
+                              >
+                                🔗
+                              </button>
+                            </div>
+                          )
+                        }
+                        
+                        // User is already in the game (multi-player)
+                        if (userInGame) {
+                          return (
+                            <div css={joinedActionsStyle}>
+                              <span css={alreadyJoinedStyle}>✅ Joined</span>
+                              <div css={gameActionsContainerStyle}>
+                                <button
+                                  css={playGameButtonStyle}
+                                  onClick={() => {
+                                    console.log('🎮 Entering joined game:', game.id)
+                                    window.location.pathname = `/game/${game.id}/play`
+                                  }}
+                                >
+                                  🎯 Play Game
+                                </button>
+                                <button
+                                  css={linkButtonStyle}
+                                  onClick={() => {
+                                    const gameUrl = `${window.location.origin}/game/${game.id}`
+                                    navigator.clipboard.writeText(gameUrl)
+                                    console.log('📋 Copied game URL:', gameUrl)
+                                    alert('Game URL copied to clipboard!')
+                                  }}
+                                  title="Copy direct link to this game"
+                                >
+                                  🔗
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        }
+                        
+                        // Game is full or other state
+                        return <span css={gameFullStyle}>Game Full</span>
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -387,12 +676,73 @@ const titleStyle = css`
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 `
 
-const contractStyle = css`
+const networkDisplayStyle = css`
   text-align: center;
-  font-size: 12px;
-  color: #888;
   margin-bottom: 20px;
-  font-family: monospace;
+`
+
+const networkInfoStyle = css`
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 10px;
+`
+
+const networkLabelStyle = css`
+  color: #888;
+  margin-right: 10px;
+`
+
+const networkValueStyle = css`
+  color: #ffd700;
+  font-weight: bold;
+`
+
+const chainIdStyle = css`
+  color: #888;
+  font-size: 0.8em;
+`
+
+const contractInfoStyle = css`
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 10px;
+`
+
+const contractLabelStyle = css`
+  color: #888;
+  margin-right: 10px;
+`
+
+const contractAddressStyle = css`
+  color: #ffd700;
+  font-weight: bold;
+`
+
+const copyButtonStyle = css`
+  background: transparent;
+  border: none;
+  color: #ffd700;
+  cursor: pointer;
+  margin-left: 10px;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+  }
+`
+
+const statusIndicatorStyle = css`
+  margin-top: 10px;
+`
+
+const connectedStyle = css`
+  color: #4ade80;
+  font-weight: bold;
+`
+
+const disconnectedStyle = css`
+  color: #ff4d4d;
+  font-weight: bold;
 `
 
 const connectSectionStyle = css`
@@ -719,6 +1069,90 @@ const playGameButtonStyle = css`
   &:hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
+  }
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+`
+
+// NEW: Contract source indicator styles
+const contractSourceStyle = css`
+  text-align: center;
+  margin-bottom: 15px;
+  padding: 8px 12px;
+  background: rgba(255, 215, 0, 0.05);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 6px;
+  font-size: 13px;
+`
+
+const sourceInfoStyle = css`
+  color: #e5e5e5;
+  margin-right: 8px;
+  
+  strong {
+    color: #ffd700;
+  }
+`
+
+const contractShortStyle = css`
+  color: #888;
+  font-family: monospace;
+  font-size: 11px;
+`
+
+const timestampStyle = css`
+  color: #888;
+  font-size: 0.8em;
+`
+
+const networkRefreshStyle = css`
+  margin-top: 10px;
+`
+
+const networkRefreshButtonStyle = css`
+  background: transparent;
+  color: #ffd700;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+  }
+`
+
+const gameActionsContainerStyle = css`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+`
+
+const linkButtonStyle = css`
+  background: rgba(255, 215, 0, 0.2);
+  color: #ffd700;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  &:hover {
+    background: rgba(255, 215, 0, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(255, 215, 0, 0.3);
   }
   
   &:disabled {

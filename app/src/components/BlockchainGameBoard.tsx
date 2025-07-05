@@ -1,49 +1,14 @@
 /** @jsxImportSource @emotion/react */
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { css } from '@emotion/react'
-import { createPublicClient, http } from 'viem'
-import { base, hardhat } from 'viem/chains'
 import { useBlockchainGame } from '../hooks/useBlockchainGame'
+import { useGameCache } from '../hooks/useGameCache'
 import { NewAgeGameBoard } from './NewAgeGameBoard'
 import type { GameConfig } from '../GameDisplay'
 import type { TileItem } from '../types/GameTypes'
 import { NumberTileId, GameParkUtils } from '../gamepark'
-import FivesGameABI from '../contracts/FivesGame.json'
 import { useDynamicContext } from '@dynamic-labs/sdk-react-core'
 import { BlockchainEndGameModal } from './BlockchainEndGameModal'
-
-// Contract configuration - FIXED VERSION with proper duplicate position validation
-// Contract address is now obtained dynamically from the hook
-
-// Create public client for reading contract data
-const getPublicClient = (networkName: string) => {
-  const networkConfigs = {
-    'Base Mainnet': { 
-      chain: base, 
-      rpcUrls: [
-        'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
-        'https://1rpc.io/base',           // 1RPC (good CORS support)
-        'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
-        'https://mainnet.base.org',       // Official Base (backup)
-        'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
-      ]
-    },
-    'Hardhat Local': { 
-      chain: hardhat, 
-      rpcUrls: ['http://127.0.0.1:8545'] 
-    }
-  }
-  
-  const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
-  return createPublicClient({
-    chain: config.chain,
-    transport: http(config.rpcUrls[0], {
-      retryCount: 3,
-      retryDelay: 1000,
-      timeout: 15000
-    })
-  })
-}
 
 interface BlockchainGameBoardProps {
   gameConfig: GameConfig
@@ -64,27 +29,40 @@ export function BlockchainGameBoard({
   blockchainGameId, 
   onBackToSetup 
 }: BlockchainGameBoardProps) {
+  // BLOCKCHAIN OPERATIONS (for write operations only)
   const {
-    currentGame,
-    playerInfo,
     playTurn,
     skipTurn,
-    getTilePoolStatus,
-    refreshGameData,
     loading: hookLoading,
     error: hookError,
     contractAddress,
-    networkName
+    networkName,
+    contractInteractionAddress // ✅ NEW: Actual address used for contract interactions
   } = useBlockchainGame()
+
+  // CACHE SYSTEM (for all read operations - NO MORE RPC ABUSE!)
+  const {
+    currentGame,
+    playerInfo,
+    allPlayersScores,
+    isLoading: cacheLoading,
+    error: cacheError,
+    refreshData: refreshCache
+  } = useGameCache({
+    blockchainGameId,
+    contractAddress: contractAddress || '',
+    networkName: networkName || 'Hardhat Local'
+  })
 
   const { primaryWallet } = useDynamicContext()
 
+  // COMBINE LOADING AND ERROR STATES
+  const loading = hookLoading || cacheLoading
+  const error = hookError || cacheError
+
   const [selectedTile, setSelectedTile] = useState<BlockchainTile | null>(null)
   const [gameMessage, setGameMessage] = useState('Loading blockchain game...')
-  const [loading, setLoading] = useState(true)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [tilePoolStatus, setTilePoolStatus] = useState<number[]>([])
   const [placedTiles, setPlacedTiles] = useState<any[]>([])
   const [stagedPlacements, setStagedPlacements] = useState<Array<{x: number, y: number, number: number, tileUniqueId: string}>>([])
   const [isConfirming, setIsConfirming] = useState(false)
@@ -96,11 +74,11 @@ export function BlockchainGameBoard({
   const [hasShownEndGameModal, setHasShownEndGameModal] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   
-  // NEW: Track all players' scores for ranking display
-  const [allPlayersScores, setAllPlayersScores] = useState<{[address: string]: number}>({})
-  
   // Mobile responsive state
   const [isMobile, setIsMobile] = useState(false)
+
+  // Default tile pool status (for compilation - this file should not be used)
+  const tilePoolStatus = Array(10).fill(5) // Default: 5 of each tile number
   
   // Detect mobile screen size
   useEffect(() => {
@@ -122,297 +100,55 @@ export function BlockchainGameBoard({
     setSidebarCollapsed(prev => !prev)
   }, [])
 
-  // NEW: Load all players' scores for ranking display
-  const loadAllPlayersScores = useCallback(async () => {
-    if (!currentGame || !contractAddress || !currentGame.playerAddresses) return
+  // Manual refresh function - now uses cache only
+  const handleManualRefresh = useCallback(async () => {
+    if (!blockchainGameId) return
     
     try {
-      console.log('🔍 Loading all players scores...')
-      const networkConfigs = {
-        'Base Mainnet': { 
-          chain: base, 
-          rpcUrls: [
-            'https://base-rpc.publicnode.com',
-            'https://1rpc.io/base',
-            'https://base.meowrpc.com',
-            'https://mainnet.base.org',
-            'https://base.blockpi.network/v1/rpc/public'
-          ]
-        },
-        'Hardhat Local': { 
-          chain: hardhat, 
-          rpcUrls: ['http://127.0.0.1:8545'] 
-        }
-      }
+      setIsSyncing(true)
+      console.log('🔄 Manual refresh triggered by user - using cache')
       
-      const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
-      const publicClient = createPublicClient({
-        chain: config.chain,
-        transport: http(config.rpcUrls[0], {
-          retryCount: 3,
-          retryDelay: 1000,
-          timeout: 15000
-        })
-      })
-      
-      const scoresMap: {[address: string]: number} = {}
-      
-      // Load each player's score
-      for (const playerAddress of currentGame.playerAddresses) {
-        try {
-          const playerData = await publicClient.readContract({
-            address: contractAddress,
-            abi: FivesGameABI.abi,
-            functionName: 'getPlayer',
-            args: [blockchainGameId, playerAddress]
-          }) as any
-          
-          // Player data structure: [wallet, name, score, hand, hasJoined, lastMoveTime]
-          const score = Number(playerData[2] || 0)
-          scoresMap[playerAddress] = score
-          console.log(`🎯 Player ${playerAddress.slice(0, 6)}...${playerAddress.slice(-4)} score: ${score}`)
-        } catch (error) {
-          console.warn(`⚠️ Failed to load score for player ${playerAddress}:`, error)
-          scoresMap[playerAddress] = 0
-        }
-      }
-      
-      setAllPlayersScores(scoresMap)
-      console.log('✅ All players scores loaded:', scoresMap)
+      // Use cache refresh instead of direct RPC calls
+      await refreshCache()
       
     } catch (error) {
-      console.warn('❌ Failed to load players scores:', error)
+      console.error('❌ Manual refresh failed:', error)
+    } finally {
+      setIsSyncing(false)
     }
-  }, [currentGame, contractAddress, networkName, blockchainGameId])
+  }, [blockchainGameId, refreshCache])
 
-  // Load board tiles from blockchain
-  const loadBoardTiles = useCallback(async () => {
-    try {
-      console.log('🔍 Loading board tiles from blockchain...')
-      
-      if (!currentGame || !contractAddress) {
-        console.log('⚠️ No current game or contract address, skipping tile load')
-        return
-      }
-      
-      // Create network-aware public client with fallback URLs
-      const networkConfigs = {
-        'Base Mainnet': { 
-          chain: base, 
-          rpcUrls: [
-            'https://base-rpc.publicnode.com', // PublicNode (usually reliable)
-            'https://1rpc.io/base',           // 1RPC (good CORS support)
-            'https://base.meowrpc.com',       // MeowRPC (dApp friendly)
-            'https://mainnet.base.org',       // Official Base (backup)
-            'https://base.blockpi.network/v1/rpc/public' // BlockPI (alternative)
-          ]
-        },
-        'Hardhat Local': { 
-          chain: hardhat, 
-          rpcUrls: ['http://127.0.0.1:8545'] 
-        }
-      }
-      
-      const config = networkConfigs[networkName] || networkConfigs['Base Mainnet']
-      
-      console.log('📍 Using contract:', contractAddress, 'on network:', networkName)
-      console.log('🔍 Game ID:', blockchainGameId)
-      console.log('🔍 Current game state:', currentGame?.state)
-      console.log('🔍 Turn number:', currentGame?.turnNumber)
-      
-      const loadedTiles: any[] = []
-      
-      // IMPROVED: Check a broader area to ensure we don't miss tiles
-      // Use a larger search radius that's more likely to find all placed tiles
-      const turnNumber = Number(currentGame.turnNumber) || 1
-      const baseRadius = Math.max(5, Math.min(12, turnNumber + 3)) // Larger minimum, reasonable maximum
-      const centerX = 7, centerY = 7
-      
-      const positionsToCheck: Array<{ x: number; y: number }> = []
-      
-      // IMPROVED: Check ALL positions within the area, not just ring perimeters
-      for (let x = Math.max(0, centerX - baseRadius); x <= Math.min(14, centerX + baseRadius); x++) {
-        for (let y = Math.max(0, centerY - baseRadius); y <= Math.min(14, centerY + baseRadius); y++) {
-          positionsToCheck.push({ x, y })
-        }
-      }
-      
-      // Sort by distance from center to check likely positions first
-      positionsToCheck.sort((a, b) => {
-        const distanceA = Math.abs(a.x - centerX) + Math.abs(a.y - centerY)
-        const distanceB = Math.abs(b.x - centerX) + Math.abs(b.y - centerY)
-        return distanceA - distanceB
-      })
-      
-      console.log(`🔍 Checking ${positionsToCheck.length} positions (improved comprehensive search)`)
-      console.log(`  Search area: ${baseRadius} tiles from center (${centerX}, ${centerY})`)
-      
-      // Helper function to check tiles with RPC fallback
-      const checkTileWithFallback = async (x: number, y: number) => {
-        let lastError
-        
-        for (let rpcIndex = 0; rpcIndex < config.rpcUrls.length; rpcIndex++) {
-          try {
-            const publicClient = createPublicClient({
-              chain: config.chain,
-              transport: http(config.rpcUrls[rpcIndex], {
-                retryCount: 1,
-                retryDelay: 200,
-                timeout: 5000
-              })
-            })
-            
-            const tileResult = await publicClient.readContract({
-              address: contractAddress,
-              abi: FivesGameABI.abi,
-              functionName: 'getTileAt',
-              args: [blockchainGameId, x, y]
-            }) as [boolean, number, number]
-            
-            const [exists, tileNumber] = tileResult
-            
-            if (exists) {
-              return {
-                id: getNumberTileId(tileNumber),
-                uniqueId: `blockchain-${x}-${y}-${tileNumber}`,
-                location: { type: 'board', x, y },
-                number: tileNumber,
-                x,
-                y
-              }
-            }
-            return null
-            
-          } catch (error: any) {
-            lastError = error
-            if (error?.message?.includes('rate limit') || error?.message?.includes('429')) {
-              console.warn(`⚠️ RPC ${rpcIndex + 1} rate limited for tile check (${x},${y})`)
-              continue // Try next RPC
-            }
-            // For other errors, still try next RPC
-            continue
-          }
-        }
-        
-        // All RPCs failed for this position
-        return null
-      }
-      
-      // Batch tile checks with RPC fallback - slightly larger batches since we're checking more positions
-      const batchSize = 8 // Increased from 5
-      for (let i = 0; i < positionsToCheck.length; i += batchSize) {
-        const batch = positionsToCheck.slice(i, i + batchSize)
-        
-        const batchPromises = batch.map(({ x, y }) => checkTileWithFallback(x, y))
-        const batchResults = await Promise.allSettled(batchPromises)
-        
-        batchResults.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value) {
-            loadedTiles.push(result.value)
-            const tile = result.value
-            console.log(`🎯 Found tile at (${tile.x}, ${tile.y}): ${tile.number}`)
-          }
-        })
-        
-        // Shorter delay between batches since we have more positions to check
-        if (i + batchSize < positionsToCheck.length) {
-          await new Promise(resolve => setTimeout(resolve, 200))
-        }
-      }
-      
-      console.log(`✅ Loaded ${loadedTiles.length} tiles from blockchain`)
-      console.log('  Loaded tiles:', loadedTiles.map(t => `(${t.x},${t.y}):${t.number}`))
-      setPlacedTiles(loadedTiles)
-      
-    } catch (error) {
-      console.warn('❌ Failed to load board tiles:', error)
-      // Don't clear tiles on error - keep existing state
-      // setPlacedTiles([]) 
-    }
-  }, [blockchainGameId, currentGame, contractAddress, networkName])
-
-  // Load initial blockchain state - MANUAL REFRESH ONLY (no automatic polling)
+  // Store last known good state for offline/error scenarios
   useEffect(() => {
-    const loadGameData = async () => {
-      try {
-        setLoading(true)
-        
-        console.log('🔄 Manual load on mount...')
-        console.log('  blockchainGameId:', blockchainGameId)
-        console.log('  currentGame:', currentGame)
-        console.log('  playerInfo:', playerInfo)
-        
-        await refreshGameData(blockchainGameId)
-        
-        // Load tile pool status
-        const poolStatus = await getTilePoolStatus(blockchainGameId)
-        setTilePoolStatus(poolStatus.remainingCounts)
-        
-        // Load placed tiles from board
-        await loadBoardTiles()
-        
-        setError(null)
-        setIsInitialLoad(false) // Set this to false after first successful load
-        
-        console.log('✅ Initial load completed successfully')
-        
-      } catch (error) {
-        console.error('❌ Failed to load game data:', error)
-        setError(`Error loading game: ${error.message}`)
-      } finally {
-        setLoading(false)
-      }
+    if (currentGame) {
+      setLastKnownGame(currentGame)
     }
-    
-    if (blockchainGameId) {
-      // Only load once on mount - no automatic polling
-      loadGameData()
+    if (playerInfo) {
+      setLastKnownPlayerInfo(playerInfo)
     }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles])
+  }, [currentGame, playerInfo])
 
-  // Debug logging to track state changes
+  // Set initial load complete when we have data
   useEffect(() => {
-    console.log('🔍 BlockchainGameBoard state update:', {
+    if (currentGame && playerInfo && isInitialLoad) {
+      setIsInitialLoad(false)
+    }
+  }, [currentGame, playerInfo, isInitialLoad])
+
+  // Debug logging to track state changes (cache provides all data now)
+  useEffect(() => {
+    console.log('🔍 BlockchainGameBoard state update (using cache):', {
       loading,
       isInitialLoad,
       currentGame: !!currentGame,
       playerInfo: !!playerInfo,
       lastKnownGame: !!lastKnownGame,
       lastKnownPlayerInfo: !!lastKnownPlayerInfo,
+      allPlayersScores: Object.keys(allPlayersScores).length,
       displayGame: !!(currentGame || lastKnownGame),
       displayPlayerInfo: !!(playerInfo || lastKnownPlayerInfo)
     })
-  }, [loading, isInitialLoad, currentGame, playerInfo, lastKnownGame, lastKnownPlayerInfo])
-
-  // Manual refresh function for user-triggered updates
-  const handleManualRefresh = useCallback(async () => {
-    if (!blockchainGameId) return
-    
-    try {
-      setIsSyncing(true)
-      console.log('🔄 Manual refresh triggered by user...')
-      
-      await refreshGameData(blockchainGameId)
-      
-      // Load tile pool status
-      const poolStatus = await getTilePoolStatus(blockchainGameId)
-      setTilePoolStatus(poolStatus.remainingCounts)
-      
-      // Load placed tiles from board
-      await loadBoardTiles()
-      
-      // NEW: Load all players' scores for ranking
-      await loadAllPlayersScores()
-      
-      setError(null)
-      
-    } catch (error) {
-      console.error('❌ Manual refresh failed:', error)
-      setError(`Refresh failed: ${error.message}`)
-    } finally {
-      setIsSyncing(false)
-    }
-  }, [blockchainGameId, refreshGameData, getTilePoolStatus, loadBoardTiles, loadAllPlayersScores])
+  }, [loading, isInitialLoad, currentGame, playerInfo, lastKnownGame, lastKnownPlayerInfo, allPlayersScores])
 
   // Update game message based on game state
   useEffect(() => {
@@ -422,18 +158,20 @@ export function BlockchainGameBoard({
       setGameMessage('Game is in setup phase')
     } else if (currentGame.state === 1) {
       const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
-      const myWalletAddr = primaryWallet?.address
-      const isMyTurn = currentPlayerAddr?.toLowerCase() === myWalletAddr?.toLowerCase()
+      const myContractAddr = contractInteractionAddress // ✅ Use correct address for ZeroDev
+      const myDisplayAddr = primaryWallet?.address
+      const isMyTurn = currentPlayerAddr?.toLowerCase() === myContractAddr?.toLowerCase()
       
-      console.log('🔍 TURN DETECTION DEBUG:')
+      console.log('🔍 TURN DETECTION DEBUG (ZeroDev-aware):')
       console.log('  Current Player Index:', currentGame.currentPlayerIndex)
       console.log('  Current Player Address:', currentPlayerAddr)
-      console.log('  My Wallet Address:', myWalletAddr)
-      console.log('  Is My Turn?:', isMyTurn)
+      console.log('  My Display Address (EOA):', myDisplayAddr)
+      console.log('  My Contract Address (Actual):', myContractAddr)
+      console.log('  Address Match (old way):', currentPlayerAddr?.toLowerCase() === myDisplayAddr?.toLowerCase())
+      console.log('  Address Match (new way):', isMyTurn)
+      console.log('  Is ZeroDev?:', myContractAddr !== myDisplayAddr)
       console.log('  All Player Addresses:', currentGame.playerAddresses)
-      console.log('  Player 0 (First):', currentGame.playerAddresses[0])
-      console.log('  Player 1 (Second):', currentGame.playerAddresses[1])
-      console.log('  My Index in Array:', currentGame.playerAddresses.findIndex(addr => addr?.toLowerCase() === myWalletAddr?.toLowerCase()))
+      console.log('  My Index in Array:', currentGame.playerAddresses.findIndex(addr => addr?.toLowerCase() === myContractAddr?.toLowerCase()))
       
       if (isMyTurn) {
         // Special message for first turn
@@ -527,16 +265,18 @@ export function BlockchainGameBoard({
 
     // Check if it's the player's turn with detailed logging
     const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
-    const myWalletAddr = primaryWallet?.address
+    const myContractAddr = contractInteractionAddress // ✅ Use correct address for ZeroDev
+    const myDisplayAddr = primaryWallet?.address
     
-    console.log(`🔍 TURN VALIDATION:`)
+    console.log(`🔍 TURN VALIDATION (ZeroDev-aware):`)
     console.log(`  Current Player Index: ${currentGame.currentPlayerIndex}`)
     console.log(`  Current Player Address: ${currentPlayerAddr}`)
-    console.log(`  My Wallet Address: ${myWalletAddr}`)
+    console.log(`  My Display Address: ${myDisplayAddr}`)
+    console.log(`  My Contract Address: ${myContractAddr}`)
     console.log(`  Player Addresses Array:`, currentGame.playerAddresses)
     console.log(`  Player Info:`, playerInfo)
     
-    const isMyTurn = currentPlayerAddr?.toLowerCase() === myWalletAddr?.toLowerCase()
+    const isMyTurn = currentPlayerAddr?.toLowerCase() === myContractAddr?.toLowerCase()
     console.log(`  Is My Turn? ${isMyTurn}`)
     
     if (!isMyTurn) {
@@ -595,9 +335,9 @@ export function BlockchainGameBoard({
       return
     }
 
-    // Check if it's the player's turn
+    // ✅ Check if it's the player's turn using correct address
     const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                    primaryWallet?.address?.toLowerCase()
+                    contractInteractionAddress?.toLowerCase()
     
     if (!isMyTurn) {
       setGameMessage('Not your turn!')
@@ -645,7 +385,7 @@ export function BlockchainGameBoard({
     } finally {
       setIsConfirming(false)
     }
-  }, [currentGame, playerInfo, stagedPlacements, blockchainGameId, playTurn, validatePlacement])
+  }, [currentGame, playerInfo, stagedPlacements, blockchainGameId, playTurn, validatePlacement, contractInteractionAddress])
 
   // Clear staged placements
   const handleClearStaged = useCallback(() => {
@@ -657,8 +397,9 @@ export function BlockchainGameBoard({
   const handleSkipTurn = useCallback(async () => {
     if (!currentGame || !playerInfo) return
     
+    // ✅ Check if it's the player's turn using correct address
     const isMyTurn = currentGame.playerAddresses[currentGame.currentPlayerIndex]?.toLowerCase() === 
-                    primaryWallet?.address?.toLowerCase()
+                    contractInteractionAddress?.toLowerCase()
     
     if (!isMyTurn) {
       setGameMessage('Not your turn!')
@@ -671,12 +412,12 @@ export function BlockchainGameBoard({
     try {
       setGameMessage('Skipping turn to draw tiles...')
       const txHash = await skipTurn(blockchainGameId)
-      setGameMessage(`Turn skipped! Drawing new tiles... ${txHash.slice(0, 10)}...`)
+      setGameMessage(`Turn skipped! Drawing new tiles... ${(txHash as string).slice(0, 10)}...`)
     } catch (error) {
       console.error('❌ Failed to skip turn:', error)
       setGameMessage(`Failed to skip turn: ${error.message}`)
     }
-  }, [currentGame, playerInfo, blockchainGameId, skipTurn])
+  }, [currentGame, playerInfo, blockchainGameId, skipTurn, contractInteractionAddress])
 
   // Create hand tiles for the UI from the new contract format
   const handTiles = useMemo(() => {
@@ -708,15 +449,6 @@ export function BlockchainGameBoard({
     return availableHandTiles
   }, [playerInfo, stagedPlacements])
 
-  // Keep track of last known good data to prevent flashing during refreshes
-  // Update last known data whenever we get fresh data
-  if (currentGame && currentGame !== lastKnownGame) {
-    setLastKnownGame(currentGame)
-  }
-  if (playerInfo && playerInfo !== lastKnownPlayerInfo) {
-    setLastKnownPlayerInfo(playerInfo)
-  }
-  
   // Use current data or fall back to last known data
   const displayGame = currentGame || lastKnownGame
   const displayPlayerInfo = playerInfo || lastKnownPlayerInfo
@@ -730,7 +462,7 @@ export function BlockchainGameBoard({
       address,
       name: `Player ${index + 1}`,
       score: displayGame.playerScores[index] || 0,
-      finalHandSize: address.toLowerCase() === primaryWallet?.address?.toLowerCase() 
+      finalHandSize: address.toLowerCase() === contractInteractionAddress?.toLowerCase() 
         ? (displayPlayerInfo.hand?.length || 0) 
         : 0 // We don't have other players' hand info
     }))
@@ -747,7 +479,7 @@ export function BlockchainGameBoard({
     }
 
     return { winner, allPlayers, gameStats }
-  }, [displayGame, displayPlayerInfo, primaryWallet])
+  }, [displayGame, displayPlayerInfo, contractInteractionAddress])
 
   // Convert blockchain state to local game format
   const localGameConfig = useMemo(() => {
@@ -867,7 +599,7 @@ export function BlockchainGameBoard({
                   index,
                   score: allPlayersScores[address] || 0, // NOW USES REAL SCORES
                   isCurrentPlayer: index === displayGame.currentPlayerIndex,
-                  isMe: address?.toLowerCase() === primaryWallet?.address?.toLowerCase()
+                  isMe: address?.toLowerCase() === contractInteractionAddress?.toLowerCase()
                 }))
                 .sort((a, b) => b.score - a.score) // Sort by score descending
                 .map((player, rank) => (
@@ -1123,11 +855,17 @@ export function BlockchainGameBoard({
                   Current Player: <strong>{displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.slice(0, 8)}...</strong>
                 </div>
                 <div css={debugItemStyle}>
-                  Your Address: <strong>{primaryWallet?.address?.slice(0, 8)}...</strong>
+                  Your Display Address: <strong>{primaryWallet?.address?.slice(0, 8)}...</strong>
                 </div>
                 <div css={debugItemStyle}>
-                  Is Your Turn: <strong style={{color: displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? '#10b981' : '#f87171'}}>
-                    {displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === primaryWallet?.address?.toLowerCase() ? 'YES' : 'NO'}
+                  Your Contract Address: <strong>{contractInteractionAddress?.slice(0, 8)}...</strong>
+                </div>
+                <div css={debugItemStyle}>
+                  Is ZeroDev: <strong>{contractInteractionAddress !== primaryWallet?.address ? 'YES' : 'NO'}</strong>
+                </div>
+                <div css={debugItemStyle}>
+                  Is Your Turn: <strong style={{color: displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === contractInteractionAddress?.toLowerCase() ? '#10b981' : '#f87171'}}>
+                    {displayGame?.playerAddresses?.[displayGame?.currentPlayerIndex || 0]?.toLowerCase() === contractInteractionAddress?.toLowerCase() ? 'YES' : 'NO'}
                   </strong>
                 </div>
               </div>

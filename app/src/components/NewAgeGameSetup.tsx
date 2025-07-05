@@ -69,10 +69,26 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
         const result = await createGame(playerCount, false, 5000, playerNames[0])
         console.log('✅ Blockchain game created:', result)
         
-        // Start the game UI with blockchain game ID
-        onStartGame(gameConfig, result.gameId)
+        // Validate we have a proper game ID
+        if (!result || !result.gameId || result.gameId < 1) {
+          throw new Error(`Invalid game creation result: ${JSON.stringify(result)}`)
+        }
+
+        console.log('🔄 Waiting a moment for blockchain state to propagate...')
         
-        alert(`Blockchain game created! Game ID: ${result.gameId}`)
+        // Small delay to ensure the game is fully available
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        console.log('🎮 About to navigate to created game:', {
+          gameConfig,
+          blockchainGameId: result.gameId,
+          gameUrl: `/game/${result.gameId}/play`
+        })
+        
+        // Navigate directly to the created game (force full page navigation)
+        window.location.href = `/game/${result.gameId}/play`
+        
+        console.log('🚀 Navigation initiated - page will reload and show game board')
       } catch (error) {
         console.error('❌ Failed to create blockchain game:', error)
         alert(`Failed to create blockchain game: ${error.message}`)
@@ -88,17 +104,8 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
   const handleJoinGame = (gameId: number) => {
     console.log('🎮 Joining blockchain game from setup:', gameId)
     
-    // Create a game config for the joined game
-    const gameConfig = {
-      playerCount: 2, // Will be updated from blockchain state
-      playerNames: ['Player 1', 'Player 2'], // Will be updated from blockchain state
-      tilesPerPlayer: 50,
-      winningScore: 99999,
-      allowIslands
-    }
-    
-    // Start the game UI with the joined game ID
-    onStartGame(gameConfig, gameId)
+    // Navigate directly to the game page (force full page navigation)
+    window.location.href = `/game/${gameId}/play`
   }
 
   return (
@@ -226,6 +233,8 @@ export function NewAgeGameSetup({ onStartGame }: NewAgeGameSetupProps) {
 
           {/* Footer Links */}
           <div css={footerStyle}>
+            <a href="/gallery" css={linkStyle}>🎮 Game Gallery</a>
+            <span css={separatorLinkStyle}>•</span>
             <a href="/new-age" css={linkStyle}>🔮 New Age Testing</a>
           </div>
         </div>
@@ -434,6 +443,16 @@ const footerStyle = css`
 const linkStyle = css`
   color: rgba(255, 215, 0, 0.8);
   text-decoration: none;
+  font-size: 0.9rem;
+  
+  &:hover {
+    color: #FFD700;
+  }
+`
+
+const separatorLinkStyle = css`
+  color: rgba(255, 215, 0, 0.4);
+  margin: 0 12px;
   font-size: 0.9rem;
 `
 

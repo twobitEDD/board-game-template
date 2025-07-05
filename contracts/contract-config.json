@@ -1,0 +1,40 @@
+{
+  "networks": {
+    "1337": {
+      "name": "Hardhat Local",
+      "rpcUrl": "http://127.0.0.1:8545",
+      "contractAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "deployedAt": "2025-07-02T20:03:36.771Z",
+      "deployerAddress": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "blockNumber": 1,
+      "gasUsed": "30000000",
+      "verified": false,
+      "active": true
+    },
+    "8453": {
+      "name": "Base Mainnet",
+      "rpcUrl": "https://base-rpc.publicnode.com",
+      "contractAddress": "0x80f80B22D1839F2216F7f7814398e7039Fc17546",
+      "deployedAt": "2024-12-20T15:30:00.000Z",
+      "deployerAddress": "0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1",
+      "blockNumber": 25123456,
+      "gasUsed": "3591735",
+      "verified": true,
+      "active": true
+    },
+    "84532": {
+      "name": "Base Sepolia",
+      "rpcUrl": "https://sepolia.base.org",
+      "contractAddress": "0xa296A27561B207d235CA61DF3C2cBa431A0ad88C",
+      "deployedAt": "2025-07-01T21:15:33.074Z",
+      "deployerAddress": "0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1",
+      "blockNumber": 27826105,
+      "gasUsed": "3446278",
+      "verified": true,
+      "active": true
+    }
+  },
+  "defaultNetwork": "84532",
+  "lastUpdated": "2025-07-02T20:03:36.772Z",
+  "version": "1.0.0"
+}

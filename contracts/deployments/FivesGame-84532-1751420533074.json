@@ -1,0 +1,13 @@
+{
+  "contractName": "FivesGame",
+  "contractAddress": "0xa296A27561B207d235CA61DF3C2cBa431A0ad88C",
+  "networkName": "baseSepolia",
+  "chainId": "84532",
+  "deployerAddress": "0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1",
+  "transactionHash": "0xc8596fd8f8dbe563e563b824392664ee9f94a651e1b7c6e7d903527a43bbc827",
+  "gasUsed": "3446278",
+  "gasPrice": "1000086",
+  "deploymentCost": "0.000003446574379908",
+  "timestamp": "2025-07-02T01:42:13.074Z",
+  "blockNumber": 27826120
+}

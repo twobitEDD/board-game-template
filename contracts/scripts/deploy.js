@@ -21,8 +21,8 @@ async function main() {
     const createTx = await fivesGame.createGame(
         2,           // maxPlayers
         false,       // allowIslands
-        100,         // winningScore
-        "Player 1"   // playerName
+        10000,       // winningScore (now allows up to 50000)
+        "EDD"   // playerName
     );
     
     const createReceipt = await createTx.wait();

@@ -1,0 +1,15 @@
+{
+  "contractAddress": "0x8edd894d800Cc0D2fb1fAe5aEa2C20Ce3c351c71",
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "blockNumber": 27855768,
+  "transactionHash": "0x84e57b8d8830171bdcfb29fc8307b5a5ea7630ada7c0a47fff06214c43b0a92e",
+  "deployer": "0x61E9bf667455F0F1dA60C3e66E6Bb586B159a6e1",
+  "deployedAt": "2025-07-02T18:10:39.043Z",
+  "contractType": "FivesGame-Simplified",
+  "testResults": {
+    "gameCreated": true,
+    "controllerMappingWorks": true,
+    "gameStartedByController": true
+  }
+}

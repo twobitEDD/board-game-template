@@ -59,6 +59,9 @@ export function NewAgeGameHeader({
 
       <div css={headerRightStyle}>
         <DynamicConnectButton />
+        <a href="/gallery" css={linkStyle} title="Game Gallery">
+          🎮
+        </a>
         <a href="/new-age" css={linkStyle} title="New Age Testing">
           🔮
         </a>

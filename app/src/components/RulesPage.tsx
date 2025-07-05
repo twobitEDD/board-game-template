@@ -2,6 +2,7 @@
 import { css } from '@emotion/react'
 import { useState } from 'react'
 import { getRulesForConfiguration } from '../data/gameRules'
+import { Navigation } from './Navigation'
 
 interface RulesPageProps {
   onBackToGame?: () => void
@@ -15,179 +16,189 @@ export function RulesPage({ onBackToGame }: RulesPageProps) {
   const rules = getRulesForConfiguration(sacredNumber, handSize)
   const currentSectionData = rules.sections.find(s => s.id === currentSection)
 
+  const scrollToSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
   return (
-    <div css={containerStyle}>
-      {/* Ancient Book Cover */}
-      <div css={bookStyle}>
-        <div css={bookCoverStyle}>
-          <div css={bookTitleStyle}>
-            <div css={mainTitleStyle}>{rules.title}</div>
-            <div css={subtitleStyle}>{rules.subtitle}</div>
-            <div css={versionStyle}>Tome {rules.version}</div>
-          </div>
-          
-                     <div css={configPanelStyle}>
-             <div css={configGroupStyle}>
-               <div css={configLabelStyle}>Sacred Number:</div>
-               <div css={configButtonsStyle}>
-                 {[3, 5, 7].map(num => (
-                   <button
-                     key={num}
-                     css={[configButtonStyle, sacredNumber === num && activeConfigButtonStyle]}
-                     onClick={() => setSacredNumber(num)}
-                   >
-                     {num}
-                   </button>
-                 ))}
-               </div>
-             </div>
-             
-             <div css={configGroupStyle}>
-               <div css={configLabelStyle}>Hand Size:</div>
-               <div css={configButtonsStyle}>
-                 {[3, 5, 7].map(num => (
-                   <button
-                     key={num}
-                     css={[configButtonStyle, handSize === num && activeConfigButtonStyle]}
-                     onClick={() => setHandSize(num)}
-                   >
-                     {num}
-                   </button>
-                 ))}
-               </div>
-             </div>
-           </div>
-
-          {onBackToGame && (
-            <button onClick={onBackToGame} css={backButtonStyle}>
-              ← Return to The Great Loom
-            </button>
-          )}
-        </div>
-
-        {/* Table of Contents */}
-        <div css={tocStyle}>
-          <h3 css={tocTitleStyle}>Table of Contents</h3>
-          <div css={tocListStyle}>
-            {rules.sections.map((section, index) => (
-              <div
-                key={section.id}
-                css={[tocItemStyle, currentSection === section.id && activeTocItemStyle]}
-                onClick={() => setCurrentSection(section.id)}
-              >
-                <span css={tocNumberStyle}>{(index + 1).toString().padStart(2, '0')}</span>
-                <span css={tocTextStyle}>{section.title}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Main Content Pages */}
-        <div css={pagesStyle}>
-          {currentSectionData && (
-            <div css={pageStyle}>
-              <div css={pageHeaderStyle}>
-                <h2 css={pageTitleStyle}>{currentSectionData.title}</h2>
-                <div css={pageNumberStyle}>
-                  {rules.sections.findIndex(s => s.id === currentSection) + 1} / {rules.sections.length}
-                </div>
-              </div>
-
-              <div css={pageContentStyle}>
-                {/* Main Content */}
-                <div css={contentSectionStyle}>
-                  {currentSectionData.content.map((paragraph, index) => (
-                    <p key={index} css={paragraphStyle}>
-                      {paragraph}
-                    </p>
-                  ))}
-                </div>
-
-                {/* Examples */}
-                {currentSectionData.examples && currentSectionData.examples.length > 0 && (
-                  <div css={examplesStyle}>
-                    <h4 css={examplesTitleStyle}>📜 Ancient Examples</h4>
-                    {currentSectionData.examples.map((example, index) => (
-                      <div key={index} css={exampleStyle}>
-                        <div css={exampleHeaderStyle}>{example.description}</div>
-                        {example.setup && (
-                          <div css={exampleSetupStyle}>
-                            <strong>Setup:</strong> {example.setup}
-                          </div>
-                        )}
-                        <div css={exampleResultStyle}>
-                          <strong>Result:</strong> {example.result}
-                        </div>
-                        {example.points !== undefined && (
-                          <div css={examplePointsStyle}>
-                            <strong>Points:</strong> {example.points}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Notes */}
-                {currentSectionData.notes && currentSectionData.notes.length > 0 && (
-                  <div css={notesStyle}>
-                    <h4 css={notesTitleStyle}>🔮 Weaver's Notes</h4>
-                    {currentSectionData.notes.map((note, index) => (
-                      <div key={index} css={noteStyle}>
-                        • {note}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Navigation */}
-              <div css={navigationStyle}>
-                <button
-                  css={navButtonStyle}
-                  onClick={() => {
-                    const currentIndex = rules.sections.findIndex(s => s.id === currentSection)
-                    if (currentIndex > 0) {
-                      setCurrentSection(rules.sections[currentIndex - 1].id)
-                    }
-                  }}
-                  disabled={rules.sections.findIndex(s => s.id === currentSection) === 0}
-                >
-                  ← Previous
-                </button>
-                
-                <button
-                  css={navButtonStyle}
-                  onClick={() => {
-                    const currentIndex = rules.sections.findIndex(s => s.id === currentSection)
-                    if (currentIndex < rules.sections.length - 1) {
-                      setCurrentSection(rules.sections[currentIndex + 1].id)
-                    }
-                  }}
-                  disabled={rules.sections.findIndex(s => s.id === currentSection) === rules.sections.length - 1}
-                >
-                  Next →
-                </button>
-              </div>
+    <>
+      <Navigation currentPage="rules" />
+      <div css={containerStyle}>
+        {/* Ancient Book Cover */}
+        <div css={bookStyle}>
+          <div css={bookCoverStyle}>
+            <div css={bookTitleStyle}>
+              <div css={mainTitleStyle}>{rules.title}</div>
+              <div css={subtitleStyle}>{rules.subtitle}</div>
+              <div css={versionStyle}>Tome {rules.version}</div>
             </div>
-          )}
-        </div>
-      </div>
+            
+                       <div css={configPanelStyle}>
+               <div css={configGroupStyle}>
+                 <div css={configLabelStyle}>Sacred Number:</div>
+                 <div css={configButtonsStyle}>
+                   {[3, 5, 7].map(num => (
+                     <button
+                       key={num}
+                       css={[configButtonStyle, sacredNumber === num && activeConfigButtonStyle]}
+                       onClick={() => setSacredNumber(num)}
+                     >
+                       {num}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+               
+               <div css={configGroupStyle}>
+                 <div css={configLabelStyle}>Hand Size:</div>
+                 <div css={configButtonsStyle}>
+                   {[3, 5, 7].map(num => (
+                     <button
+                       key={num}
+                       css={[configButtonStyle, handSize === num && activeConfigButtonStyle]}
+                       onClick={() => setHandSize(num)}
+                     >
+                       {num}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             </div>
 
-      {/* Ancient Background */}
-      <div css={backgroundStyle} />
-    </div>
+            {onBackToGame && (
+              <button onClick={onBackToGame} css={backButtonStyle}>
+                ← Return to The Great Loom
+              </button>
+            )}
+          </div>
+
+          {/* Table of Contents */}
+          <div css={tocStyle}>
+            <h3 css={tocTitleStyle}>Table of Contents</h3>
+            <div css={tocListStyle}>
+              {rules.sections.map((section, index) => (
+                <div
+                  key={section.id}
+                  css={[tocItemStyle, currentSection === section.id && activeTocItemStyle]}
+                  onClick={() => setCurrentSection(section.id)}
+                >
+                  <span css={tocNumberStyle}>{(index + 1).toString().padStart(2, '0')}</span>
+                  <span css={tocTextStyle}>{section.title}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Main Content Pages */}
+          <div css={pagesStyle}>
+            {currentSectionData && (
+              <div css={pageStyle}>
+                <div css={pageHeaderStyle}>
+                  <h2 css={pageTitleStyle}>{currentSectionData.title}</h2>
+                  <div css={pageNumberStyle}>
+                    {rules.sections.findIndex(s => s.id === currentSection) + 1} / {rules.sections.length}
+                  </div>
+                </div>
+
+                <div css={pageContentStyle}>
+                  {/* Main Content */}
+                  <div css={contentSectionStyle}>
+                    {currentSectionData.content.map((paragraph, index) => (
+                      <p key={index} css={paragraphStyle}>
+                        {paragraph}
+                      </p>
+                    ))}
+                  </div>
+
+                  {/* Examples */}
+                  {currentSectionData.examples && currentSectionData.examples.length > 0 && (
+                    <div css={examplesStyle}>
+                      <h4 css={examplesTitleStyle}>📜 Ancient Examples</h4>
+                      {currentSectionData.examples.map((example, index) => (
+                        <div key={index} css={exampleStyle}>
+                          <div css={exampleHeaderStyle}>{example.description}</div>
+                          {example.setup && (
+                            <div css={exampleSetupStyle}>
+                              <strong>Setup:</strong> {example.setup}
+                            </div>
+                          )}
+                          <div css={exampleResultStyle}>
+                            <strong>Result:</strong> {example.result}
+                          </div>
+                          {example.points !== undefined && (
+                            <div css={examplePointsStyle}>
+                              <strong>Points:</strong> {example.points}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {currentSectionData.notes && currentSectionData.notes.length > 0 && (
+                    <div css={notesStyle}>
+                      <h4 css={notesTitleStyle}>🔮 Weaver's Notes</h4>
+                      {currentSectionData.notes.map((note, index) => (
+                        <div key={index} css={noteStyle}>
+                          • {note}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Navigation */}
+                <div css={navigationStyle}>
+                  <button
+                    css={navButtonStyle}
+                    onClick={() => {
+                      const currentIndex = rules.sections.findIndex(s => s.id === currentSection)
+                      if (currentIndex > 0) {
+                        setCurrentSection(rules.sections[currentIndex - 1].id)
+                      }
+                    }}
+                    disabled={rules.sections.findIndex(s => s.id === currentSection) === 0}
+                  >
+                    ← Previous
+                  </button>
+                  
+                  <button
+                    css={navButtonStyle}
+                    onClick={() => {
+                      const currentIndex = rules.sections.findIndex(s => s.id === currentSection)
+                      if (currentIndex < rules.sections.length - 1) {
+                        setCurrentSection(rules.sections[currentIndex + 1].id)
+                      }
+                    }}
+                    disabled={rules.sections.findIndex(s => s.id === currentSection) === rules.sections.length - 1}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Ancient Background */}
+        <div css={backgroundStyle} />
+      </div>
+    </>
   )
 }
 
 const containerStyle = css`
-  height: 100vh !important;
-  background: radial-gradient(ellipse at center, #2d3748 0%, #1a202c 70%, #0f1419 100%);
-  display: block !important;
-  padding: 2rem;
   position: relative;
-  overflow-y: scroll !important;
-  overflow-x: hidden !important;
+  min-height: 100vh;
+  padding-top: 70px; /* Account for fixed navigation */
+  background: linear-gradient(135deg, #2c1810 0%, #1a1a2e 50%, #16213e 100%);
+  color: #f4e4c1;
+  overflow-x: hidden;
+  font-family: 'Crimson Text', 'Georgia', serif;
 `
 
 const backgroundStyle = css`

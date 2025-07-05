@@ -5,7 +5,7 @@ async function main() {
   const [funder] = await ethers.getSigners();
   
   // The wallet address to fund (your Dynamic wallet)
-  const walletToFund = "0x332446246586B1057aCDdCAF263A39966FAeDa02";
+  const walletToFund = process.argv[2] || "0xd767441056a5F92bC878D7038094627096170DA3";
   
   console.log("🏦 Funding wallet with test ETH...");
   console.log("From:", funder.address);

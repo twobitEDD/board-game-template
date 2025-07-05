@@ -81,7 +81,7 @@ describe("FivesGame - 50 Tile Distribution", function () {
       ).to.be.revertedWith("Invalid winning score");
       
       await expect(
-        fivesGame.createGame(2, false, 600, "Player")
+        fivesGame.createGame(2, false, 60000, "Player")
       ).to.be.revertedWith("Invalid winning score");
 
       // Empty player name

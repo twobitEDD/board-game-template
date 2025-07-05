@@ -5,7 +5,7 @@ import { NumberTileId } from '../../../rules/src/material/NumberTileId'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 
 import { GameConfig } from './GameSetup'
-import { GameBoard } from './GameBoard'
+import { LocalGameBoard } from './LocalGameBoard'
 import { TurnSummaryModal } from './TurnSummaryModal'
 import { EndGameModal } from './EndGameModal'
 
@@ -1751,7 +1751,7 @@ export function FivesGameBoard({ gameConfig, onGameDataUpdate }: FivesGameBoardP
             </div>
           )}
           
-          <GameBoard
+          <LocalGameBoard
             boardTiles={boardTiles}
             tilesPlacedThisTurn={tilesPlacedThisTurn}
             selectedTile={selectedTile}

@@ -1,12 +1,14 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import type { GameConfig } from '../GameDisplay'
 import { NewAgeTile } from './NewAgeTile'
 import { NewAgePlayerPanel } from './NewAgePlayerPanel'
 import { NewAgeGameHeader } from './NewAgeGameHeader'
 import { NewAgeEndGameModal } from './NewAgeEndGameModal'
 import { NumberTileId, GameParkUtils } from '../gamepark'
+import { useGameCache } from '../hooks/useGameCache'
+import { useBlockchainGame } from '../hooks/useBlockchainGame'
 
 // Proper tile structure from original game
 interface TileItem {
@@ -38,16 +40,42 @@ export interface GameState {
 interface NewAgeGameBoardProps {
   gameConfig: GameConfig
   onBackToSetup: () => void
+  blockchainGameId?: number
+  mode?: 'local' | 'blockchain'
 }
 
-export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardProps) {
+export function NewAgeGameBoard({ 
+  gameConfig, 
+  onBackToSetup, 
+  blockchainGameId, 
+  mode = 'local' 
+}: NewAgeGameBoardProps) {
   
-  // Create initial draw pile with proper distribution (from original)
+  const blockchainGame = useBlockchainGame()
+  const [isBlockchainMode] = useState(mode === 'blockchain' && blockchainGameId)
+  
+  const { 
+    placedTiles: cachedTiles, 
+    currentGame: cachedGame, 
+    allPlayersScores: cachedScores,
+    playerInfo: cachedPlayerInfo,
+    isLoading: cacheLoading,
+    error: cacheError,
+    refreshData: refreshCache
+  } = useGameCache({
+    blockchainGameId: blockchainGameId || 0,
+    contractAddress: blockchainGame.contractAddress || '',
+    networkName: blockchainGame.networkName || 'Base Sepolia',
+    chainId: blockchainGame.currentNetwork || 84532
+  })
+  
+  const [blockchainError, setBlockchainError] = useState<string | null>(null)
+  const [isSubmittingMove, setIsSubmittingMove] = useState(false)
+
   const createInitialDrawPile = (): NumberTileId[] => {
     const pile: NumberTileId[] = []
     const totalTilesNeeded = gameConfig.playerCount * gameConfig.tilesPerPlayer + 20
     
-    // Original distribution
     const originalDistribution = {
       [NumberTileId.Zero]: 2,
       [NumberTileId.One]: 4,
@@ -76,7 +104,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       }
     })
     
-    // Shuffle
     for (let i = pile.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pile[i], pile[j]] = [pile[j], pile[i]]
@@ -88,18 +115,15 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   function initializeGame(config: GameConfig): GameState {
     const initialPile = createInitialDrawPile()
     
-    // Create starting board with center tile
     const boardTiles: TileItem[] = [
       { id: NumberTileId.Five, uniqueId: 'center-tile', location: { type: 'Board', x: 7, y: 7 } }
     ]
     
-    // Create player hands (5 tiles each from original logic)
     const playerHands: TileItem[][] = []
     const playerDrawPiles: NumberTileId[][] = []
     let tileIndex = 0
     
     for (let playerIndex = 0; playerIndex < config.playerCount; playerIndex++) {
-      // Each player starts with 5 tiles in hand
       const playerHand = initialPile.slice(tileIndex, tileIndex + 5).map((tileId: NumberTileId, index: number) => ({
         id: tileId,
         uniqueId: `hand-p${playerIndex}-${Date.now()}-${index}`,
@@ -108,7 +132,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
       playerHands.push(playerHand)
       tileIndex += 5
       
-      // Remaining tiles for this player go to their draw pile
       const remainingTiles = config.tilesPerPlayer - 5
       const playerPile = initialPile.slice(tileIndex, tileIndex + remainingTiles)
       playerDrawPiles.push(playerPile)
@@ -131,9 +154,59 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     }
   }
 
-  // CONVERT TO WORKING PATTERN: Separate state variables like FivesGameBoard
-  const initialGameData = useMemo(() => initializeGame(gameConfig), [gameConfig])
-  
+  const initialGameData = useMemo(() => {
+    if (isBlockchainMode && cachedGame) {
+      return initializeGameFromBlockchain(cachedGame, cachedTiles, cachedPlayerInfo)
+    }
+    return initializeGame(gameConfig)
+  }, [gameConfig, isBlockchainMode, cachedGame, cachedTiles, cachedPlayerInfo])
+
+  function initializeGameFromBlockchain(blockchainGame: any, tiles: any[], playerInfo: any): GameState {
+    console.log('🔄 Converting blockchain data to local format:', {
+      blockchainGame,
+      tiles: tiles?.length || 0,
+      playerInfo
+    })
+
+    const boardTiles: TileItem[] = (tiles || []).map((tile, index) => ({
+      id: tile.number as NumberTileId,
+      uniqueId: `blockchain-tile-${index}`,
+      location: { type: 'Board', x: tile.x, y: tile.y }
+    }))
+
+    const playerHands: TileItem[][] = []
+    const playerDrawPiles: NumberTileId[][] = []
+    
+    for (let playerIndex = 0; playerIndex < blockchainGame.maxPlayers; playerIndex++) {
+      if (playerIndex === 0 && playerInfo?.hand) {
+        const playerHand = playerInfo.hand.map((tileNumber: number, index: number) => ({
+          id: tileNumber as NumberTileId,
+          uniqueId: `blockchain-hand-${index}`,
+          location: { type: 'Hand', player: `player${playerIndex}` }
+        }))
+        playerHands.push(playerHand)
+      } else {
+        playerHands.push([])
+      }
+      playerDrawPiles.push([])
+    }
+
+    return {
+      boardTiles,
+      playerHands,
+      playerDrawPiles,
+      currentPlayer: blockchainGame.currentPlayerIndex || 0,
+      scores: blockchainGame.playerScores || [0],
+      turnNumber: blockchainGame.turnNumber || 1,
+      gameMessage: `Blockchain Game ${blockchainGameId} - Turn ${blockchainGame.turnNumber}`,
+      selectedTile: null,
+      gameEnded: blockchainGame.state === 2,
+      winner: null,
+      tilesPlacedThisTurn: [],
+      turnScore: 0
+    }
+  }
+
   const [boardTiles, setBoardTiles] = useState<TileItem[]>(initialGameData.boardTiles)
   const [playerHands, setPlayerHands] = useState<TileItem[][]>(initialGameData.playerHands)
   const [playerDrawPiles, setPlayerDrawPiles] = useState<NumberTileId[][]>(initialGameData.playerDrawPiles)
@@ -149,6 +222,34 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showEndGameModal, setShowEndGameModal] = useState(false)
   const [gameStartTime] = useState(Date.now())
+
+  useEffect(() => {
+    if (isBlockchainMode && cachedGame && cachedTiles) {
+      console.log('🔄 Updating local state from blockchain cache')
+      const blockchainGameState = initializeGameFromBlockchain(cachedGame, cachedTiles, cachedPlayerInfo)
+      
+      setBoardTiles(blockchainGameState.boardTiles)
+      setPlayerHands(blockchainGameState.playerHands)
+      setCurrentPlayer(blockchainGameState.currentPlayer)
+      setScores(blockchainGameState.scores)
+      setTurnNumber(blockchainGameState.turnNumber)
+      setGameMessage(blockchainGameState.gameMessage)
+      setGameEnded(blockchainGameState.gameEnded)
+      
+      setTilesPlacedThisTurn([])
+      setTurnScore(0)
+      setSelectedTile(null)
+    }
+  }, [isBlockchainMode, cachedGame, cachedTiles, cachedPlayerInfo, blockchainGameId])
+
+  useEffect(() => {
+    if (cacheError) {
+      setBlockchainError(cacheError)
+      setGameMessage(`Blockchain Error: ${cacheError}`)
+    } else {
+      setBlockchainError(null)
+    }
+  }, [cacheError])
 
   const boardContainerRef = useRef<HTMLDivElement>(null)
   const [boardOffset, setBoardOffset] = useState({ x: 0, y: 0 })
@@ -180,7 +281,19 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     setBoardOffset({ x: 0, y: 0 })
   }, [])
 
-  // Helper function to get tile numeric value
+  const handleRefreshBlockchain = useCallback(async () => {
+    if (!isBlockchainMode) return
+    
+    try {
+      console.log('🔄 Refreshing blockchain data...')
+      await refreshCache()
+      setGameMessage('Blockchain data refreshed!')
+    } catch (error) {
+      console.error('❌ Failed to refresh blockchain data:', error)
+      setGameMessage(`Failed to refresh: ${error.message}`)
+    }
+  }, [isBlockchainMode, refreshCache])
+
   const getTileValue = (tileId: NumberTileId): number => {
     switch (tileId) {
       case NumberTileId.Zero: return 0
@@ -197,13 +310,9 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     }
   }
 
-  // Current player's hand (derived from playerHands) - EXACTLY like FivesGameBoard
   const handTiles = playerHands[currentPlayer] || []
   const currentPlayerId = `player${currentPlayer}`
   
-  // Current player's hand (derived from playerHands) - EXACTLY like FivesGameBoard
-
-  // Helper function to update current player's hand - EXACTLY like FivesGameBoard
   const updateCurrentPlayerHand = (updater: (prevHand: TileItem[]) => TileItem[]) => {
     setPlayerHands(prev => {
       const newHands = [...prev]
@@ -212,12 +321,10 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     })
   }
 
-  // Draw tiles from current player's pile - EXACTLY like FivesGameBoard
   const drawTilesFromPile = (count: number): NumberTileId[] => {
     const currentPlayerPile = playerDrawPiles[currentPlayer] || []
     const drawnTiles = currentPlayerPile.slice(0, count)
     
-    // Update the current player's draw pile
     setPlayerDrawPiles(prev => {
       const newPiles = [...prev]
       newPiles[currentPlayer] = newPiles[currentPlayer].slice(count)
@@ -225,6 +332,540 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     })
     
     return drawnTiles
+  }
+
+  const submitMoveToBlockchain = async (placements: TileItem[]) => {
+    if (!isBlockchainMode || !blockchainGameId) return false
+    
+    setIsSubmittingMove(true)
+    try {
+      console.log('🔗 Submitting move to blockchain...', placements)
+      
+      const tilePlacements = placements.map(tile => ({
+        number: getTileValue(tile.id),
+        x: tile.location.x!,
+        y: tile.location.y!
+      }))
+      
+      const txHash = await blockchainGame.playTurn(blockchainGameId, tilePlacements)
+      console.log('✅ Move submitted to blockchain:', txHash)
+      
+      setTimeout(() => {
+        refreshCache()
+      }, 2000)
+      
+      return true
+    } catch (error) {
+      console.error('❌ Failed to submit move to blockchain:', error)
+      setGameMessage(`Failed to submit move: ${error.message}`)
+      return false
+    } finally {
+      setIsSubmittingMove(false)
+    }
+  }
+
+  const handleTileSelect = (tile: TileItem) => {
+    console.log('🎯 TILE SELECTED:')
+    console.log('  - Tile value:', getTileValue(tile.id))
+    console.log('  - Tile uniqueId:', tile.uniqueId)
+    console.log('  - Current hand size:', handTiles.length)
+    console.log('  - Hand uniqueIds:', handTiles.map(t => t.uniqueId))
+    setSelectedTile(tile)
+  }
+
+  const getConnectedTiles = (allTiles: TileItem[]) => {
+    if (allTiles.length <= 1) return allTiles
+    
+    const centerTile = allTiles.find(tile => tile.location.x === 7 && tile.location.y === 7)
+    const startTile = centerTile || allTiles[0]
+    
+    if (!startTile) return []
+    
+    const positionMap = new Map<string, TileItem>()
+    allTiles.forEach(tile => {
+      if (tile.location.x !== undefined && tile.location.y !== undefined) {
+        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
+      }
+    })
+    
+    const visited = new Set<string>()
+    const connectedTiles: TileItem[] = []
+    const queue = [startTile]
+    const startKey = `${startTile.location.x},${startTile.location.y}`
+    visited.add(startKey)
+    connectedTiles.push(startTile)
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const x = current.location.x || 0
+      const y = current.location.y || 0
+      
+      const adjacent = [
+        { x: x - 1, y },
+        { x: x + 1, y },
+        { x, y: y - 1 },
+        { x, y: y + 1 }
+      ]
+      
+      for (const adj of adjacent) {
+        const adjKey = `${adj.x},${adj.y}`
+        if (!visited.has(adjKey) && positionMap.has(adjKey)) {
+          visited.add(adjKey)
+          const connectedTile = positionMap.get(adjKey)!
+          connectedTiles.push(connectedTile)
+          queue.push(connectedTile)
+        }
+      }
+    }
+    
+    return connectedTiles
+  }
+
+  const handleBoardClick = (x: number, y: number) => {
+    if (!selectedTile) {
+      setGameMessage("Select a thread from your hand first!")
+      return
+    }
+
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    const existingTile = allTiles.find(tile => tile.location.x === x && tile.location.y === y)
+    
+    if (existingTile) {
+      setGameMessage("Position already occupied!")
+      return
+    }
+
+    const validationResult = isValidMathematicalPlacement(x, y, getTileValue(selectedTile.id), allTiles, tilesPlacedThisTurn)
+    if (!validationResult.valid) {
+      setGameMessage(`🚫 ${validationResult.reason}`)
+      return
+    }
+
+    const placedTile: TileItem = {
+      id: selectedTile.id,
+      uniqueId: selectedTile.uniqueId,
+      location: { type: 'board', x, y }
+    }
+
+    setTilesPlacedThisTurn(prev => [...prev, placedTile])
+    
+    updateCurrentPlayerHand(prevHand => 
+      prevHand.filter(tile => tile.uniqueId !== selectedTile.uniqueId)
+    )
+
+    setSelectedTile(null)
+    setGameMessage(`Thread placed at (${x}, ${y})`)
+  }
+
+  const handlePlacedTileClick = (tile: TileItem) => {
+    const isPlacedThisTurn = tilesPlacedThisTurn.some(placedTile => 
+      placedTile.location.x === tile.location.x && 
+      placedTile.location.y === tile.location.y
+    )
+    
+    if (!isPlacedThisTurn) return
+    
+    const newTilesPlacedThisTurn = tilesPlacedThisTurn.filter(placedTile => 
+      !(placedTile.location.x === tile.location.x && placedTile.location.y === tile.location.y)
+    )
+    
+    if (gameConfig.allowIslands) {
+      setTilesPlacedThisTurn(newTilesPlacedThisTurn)
+      
+      const returnedTile = {
+        ...tile,
+        location: { type: 'Hand', player: currentPlayerId }
+      }
+      console.log('🏠 RETURNING TILE TO HAND (Islands mode):')
+      console.log('  - Tile value:', getTileValue(returnedTile.id))
+      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
+      console.log('  - Hand size before:', handTiles.length)
+      updateCurrentPlayerHand(prev => {
+        const newHand = [...prev, returnedTile]
+        console.log('  - Hand size after:', newHand.length)
+        console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
+        return newHand
+      })
+      
+      const finalAllTiles = [...boardTiles, ...newTilesPlacedThisTurn]
+      const turnSequences = calculateTurnSequences(finalAllTiles, newTilesPlacedThisTurn)
+      const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+      setTurnScore(newTurnScore)
+      
+      let message = `Returned ${getTileValue(tile.id)} tile to hand.`
+      if (newTilesPlacedThisTurn.length > 0) {
+        message += ` Click green tiles to return them or end turn when ready.`
+      } else {
+        message += ` End turn when ready.`
+      }
+      setGameMessage(message)
+      return
+    }
+    
+    const allRemainingTiles = [...boardTiles, ...newTilesPlacedThisTurn]
+    
+    const connectedTiles = getConnectedTiles(allRemainingTiles)
+    const connectedPositions = new Set(
+      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
+    )
+    
+    const finalBoardTiles = boardTiles.filter(boardTile =>
+      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const finalTilesPlacedThisTurn = newTilesPlacedThisTurn.filter(placedTile =>
+      connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
+    )
+    
+    const removedBoardTiles = boardTiles.filter(boardTile =>
+      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const removedPlacedTiles = newTilesPlacedThisTurn.filter(placedTile =>
+      !connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
+    )
+    
+    setBoardTiles(finalBoardTiles)
+    setTilesPlacedThisTurn(finalTilesPlacedThisTurn)
+    
+    const returnedTile = {
+      ...tile,
+      location: { type: 'Hand', player: currentPlayerId }
+    }
+    
+    const allRemovedTiles = [returnedTile, ...removedBoardTiles, ...removedPlacedTiles].map(t => ({
+      ...t,
+      location: { type: 'Hand', player: currentPlayerId }
+    }))
+    
+    updateCurrentPlayerHand(prev => {
+      const newHand = [...prev, ...allRemovedTiles]
+      console.log('🏠 RETURNING TILE TO HAND (Non-Islands mode):')
+      console.log('  - Tile value:', getTileValue(returnedTile.id))
+      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
+      console.log('  - Hand size before:', handTiles.length)
+      console.log('  - Hand size after:', newHand.length)
+      console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
+      return newHand
+    })
+    
+    const finalAllTiles = [...finalBoardTiles, ...finalTilesPlacedThisTurn]
+    const turnSequences = calculateTurnSequences(finalAllTiles, finalTilesPlacedThisTurn)
+    const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+    setTurnScore(newTurnScore)
+    
+    const totalRemoved = allRemovedTiles.length
+    let message = `Returned ${getTileValue(tile.id)} tile to hand.`
+    
+    if (totalRemoved > 1) {
+      message += ` Also removed ${totalRemoved - 1} orphaned tile(s) that became disconnected.`
+    }
+    
+    if (finalTilesPlacedThisTurn.length > 0) {
+      message += ` Click green tiles to return them or end turn when ready.`
+    } else {
+      message += ` End turn when ready.`
+    }
+    
+    setGameMessage(message)
+  }
+
+  const handleEndTurn = () => {
+    if (tilesPlacedThisTurn.length === 0) {
+      setGameMessage("You must place at least one tile before ending your turn!")
+      return
+    }
+
+    if (isBlockchainMode) {
+      handleBlockchainEndTurn()
+      return
+    }
+
+    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    
+    for (const placedTile of tilesPlacedThisTurn) {
+      const validation = isValidMathematicalPlacement(
+        placedTile.location.x!, 
+        placedTile.location.y!, 
+        getTileValue(placedTile.id), 
+        boardTiles, 
+        tilesPlacedThisTurn.filter(t => t !== placedTile)
+      )
+      if (!validation.valid) {
+        setGameMessage(`🚫 Invalid placement: ${validation.reason}`)
+        return
+      }
+    }
+    
+    const turnSequences = calculateTurnSequences(allTiles, tilesPlacedThisTurn)
+    const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
+    
+    if (turnSequences.length === 0) {
+      setGameMessage("🚫 Invalid turn: No valid sequences found. All sequences must sum to multiples of 5.")
+      return
+    }
+    
+    const newScores = [...scores]
+    newScores[currentPlayer] += finalTurnScore
+    setScores(newScores)
+
+    const newBoardTiles = [...boardTiles, ...tilesPlacedThisTurn]
+    setBoardTiles(newBoardTiles)
+
+    const playerPile = playerDrawPiles[currentPlayer] || []
+    const tilesNeeded = Math.min(5 - handTiles.length, playerPile.length)
+    if (tilesNeeded > 0) {
+      const newTiles = drawTilesFromPile(tilesNeeded)
+      const newHandTiles = newTiles.map((tileId, index) => ({
+        id: tileId,
+        uniqueId: `refill-${Date.now()}-${index}`,
+        location: { type: 'Hand', player: currentPlayerId }
+      }))
+      updateCurrentPlayerHand(prev => [...prev, ...newHandTiles])
+    }
+    
+    setTilesPlacedThisTurn([])
+    setTurnScore(0)
+    setSelectedTile(null)
+    
+    const allPlayersOutOfTiles = Array.from({ length: gameConfig.playerCount }, (_, i) => {
+      const playerHand = i === currentPlayer ? handTiles : (playerHands[i] || [])
+      const playerPile = playerDrawPiles[i] || []
+      return playerHand.length === 0 && playerPile.length === 0
+    }).every(isEmpty => isEmpty)
+    
+    const isGameEnd = allPlayersOutOfTiles || turnNumber >= 200
+
+    let nextPlayer = currentPlayer
+    let newTurnNumber = turnNumber
+    
+    if (!isGameEnd && gameConfig.playerCount > 1) {
+      nextPlayer = (currentPlayer + 1) % gameConfig.playerCount
+      if (nextPlayer === 0) {
+        newTurnNumber = turnNumber + 1
+      }
+    } else if (!isGameEnd && gameConfig.playerCount === 1) {
+      newTurnNumber = turnNumber + 1
+    }
+    
+    setCurrentPlayer(nextPlayer)
+    setTurnNumber(newTurnNumber)
+
+    const sequenceText = turnSequences.map(seq => {
+      const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
+      return `${tileValues} = ${seq.sum} (×10 = ${seq.sum * 10})`
+    }).join(', ')
+    
+    let completionMessage = ""
+    if (isGameEnd) {
+      setGameEnded(true)
+      setWinner(newScores.indexOf(Math.max(...newScores)))
+      
+      if (allPlayersOutOfTiles) {
+        completionMessage = `🎯 Game Complete! All weavers have finished their threads! Winner: ${gameConfig.playerNames[newScores.indexOf(Math.max(...newScores))]} with ${Math.max(...newScores)} points!`
+      } else {
+        completionMessage = `⏰ Game Complete! Turn limit reached.`
+      }
+      
+      setTimeout(() => setShowEndGameModal(true), 1500)
+    } else {
+      const nextPlayerName = gameConfig.playerNames[nextPlayer] || `Player ${nextPlayer + 1}`
+      if (gameConfig.playerCount > 1) {
+        completionMessage = `${nextPlayerName}'s turn! Place tiles in a single row or column that adds to a multiple of 5.`
+      } else {
+        completionMessage = `Turn ${newTurnNumber} started. Continue weaving...`
+      }
+    }
+
+    const message = turnSequences.length > 0
+      ? `🎉 Turn complete! ${sequenceText}. Total turn score: ${finalTurnScore}. Game total: ${newScores[currentPlayer]}. ${completionMessage}`
+      : `🎉 Turn complete! Scored ${finalTurnScore} points. Total: ${newScores[currentPlayer]}. ${completionMessage}`
+
+    setGameMessage(message)
+  }
+
+  const handleBlockchainEndTurn = async () => {
+    if (isSubmittingMove) return
+    
+    try {
+      setGameMessage("Submitting move to blockchain...")
+      const success = await submitMoveToBlockchain(tilesPlacedThisTurn)
+      
+      if (success) {
+        setGameMessage("Move submitted successfully! Waiting for confirmation...")
+        setTilesPlacedThisTurn([])
+        setSelectedTile(null)
+        setTurnScore(0)
+      } else {
+        setGameMessage("Failed to submit move. Please try again.")
+      }
+    } catch (error) {
+      console.error('❌ Blockchain move submission failed:', error)
+      setGameMessage(`Move submission failed: ${error.message}`)
+    }
+  }
+
+  const handleUndoTurn = () => {
+    if (tilesPlacedThisTurn.length === 0) {
+      setGameMessage("No tiles to undo!")
+      return
+    }
+
+    console.log('🔄 UNDO TURN DEBUG:')
+    console.log('  - Hand size BEFORE undo:', handTiles.length)
+    console.log('  - Tiles placed this turn:', tilesPlacedThisTurn.length)
+    console.log('  - Expected hand size after undo:', handTiles.length + tilesPlacedThisTurn.length)
+
+    const tilesToRemove = tilesPlacedThisTurn
+    const remainingBoardTiles = boardTiles.filter(boardTile => 
+      !tilesToRemove.some(removeTile => 
+        boardTile.location.x === removeTile.location.x && 
+        boardTile.location.y === removeTile.location.y
+      )
+    )
+
+    const connectedTiles = getConnectedTiles(remainingBoardTiles)
+    const connectedPositions = new Set(
+      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
+    )
+    
+    const finalBoardTiles = remainingBoardTiles.filter(boardTile =>
+      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+    
+    const removedIslandTiles = remainingBoardTiles.filter(boardTile =>
+      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
+    )
+
+    setBoardTiles(finalBoardTiles)
+
+    const allRemovedTiles = [...tilesToRemove, ...removedIslandTiles].map(tile => ({
+      ...tile,
+      location: { type: 'Hand', player: currentPlayerId }
+    }))
+    
+    console.log('  - Total tiles being returned to hand:', allRemovedTiles.length)
+    console.log('  - Tiles from this turn:', tilesToRemove.length)
+    console.log('  - Island tiles removed:', removedIslandTiles.length)
+    
+    updateCurrentPlayerHand(prev => {
+      const newHand = [...prev, ...allRemovedTiles]
+      console.log('  - Hand size AFTER undo:', newHand.length)
+      return newHand
+    })
+
+    setTilesPlacedThisTurn([])
+    setTurnScore(0)
+    setSelectedTile(null)
+    
+    let message = `Undid ${tilesToRemove.length} tile placements.`
+    if (removedIslandTiles.length > 0) {
+      message += ` Also removed ${removedIslandTiles.length} island tile(s) that became disconnected.`
+    }
+    message += ` Try a different strategy!`
+    
+    setGameMessage(message)
+  }
+
+  const handleSkipTurn = () => {
+    const penalty = Math.min(50, scores[currentPlayer])
+    const newScores = [...scores]
+    newScores[currentPlayer] = Math.max(0, newScores[currentPlayer] - penalty)
+    setScores(newScores)
+
+    const personalPile = playerDrawPiles[currentPlayer] || []
+    if (personalPile.length > 0 && handTiles.length < 5) {
+      const newTiles = drawTilesFromPile(1)
+      const newHandTile = {
+        id: newTiles[0],
+        uniqueId: `skip-${Date.now()}`,
+        location: { type: 'Hand', player: currentPlayerId }
+      }
+      updateCurrentPlayerHand(prev => [...prev, newHandTile])
+    }
+
+    let nextPlayer = currentPlayer
+    let newTurnNumber = turnNumber
+    
+    if (gameConfig.playerCount > 1) {
+      nextPlayer = (currentPlayer + 1) % gameConfig.playerCount
+      if (nextPlayer === 0) {
+        newTurnNumber = turnNumber + 1
+      }
+    } else {
+      newTurnNumber = turnNumber + 1
+    }
+
+    setCurrentPlayer(nextPlayer)
+    setTurnNumber(newTurnNumber)
+    setTilesPlacedThisTurn([])
+    setTurnScore(0)
+    setSelectedTile(null)
+
+    const nextPlayerName = gameConfig.playerNames[nextPlayer] || `Player ${nextPlayer + 1}`
+    const messageEnd = gameConfig.playerCount === 1 
+      ? `Current score: ${newScores[currentPlayer]}`
+      : `${nextPlayerName}'s turn!`
+
+    setGameMessage(`Turn skipped. ${penalty > 0 ? `Lost ${penalty} points as penalty.` : ''} ${messageEnd}`)
+  }
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed)
+  }
+
+  const formatGameTime = () => {
+    const totalMs = Date.now() - gameStartTime
+    const minutes = Math.floor(totalMs / 60000)
+    const seconds = Math.floor((totalMs % 60000) / 1000)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  const calculatePlayerStats = (playerIndex: number) => {
+    const score = scores[playerIndex] || 0
+    const turns = Math.max(1, turnNumber - 1)
+    return {
+      name: gameConfig.playerNames[playerIndex] || `Player ${playerIndex + 1}`,
+      score: score,
+      turns: turns,
+      totalTilesPlaced: boardTiles.length - 1,
+      longestSequence: 5,
+      averageScore: score / turns
+    }
+  }
+
+  const generateAchievements = () => {
+    const achievements: string[] = []
+    const playerScore = scores[0] || 0
+    const tilesPlaced = boardTiles.length - 1
+    const tilesRemaining = (playerDrawPiles[0]?.length || 0) + (playerHands[0]?.length || 0)
+    
+    if (playerScore >= 1000) achievements.push("🏆 Score Master - Reached 1000+ points")
+    if (playerScore >= 2000) achievements.push("🌟 Legendary Weaver - Reached 2000+ points") 
+    if (tilesPlaced >= 30) achievements.push("🎯 Tile Master - Placed 30+ tiles")
+    if (turnNumber <= 20 && playerScore >= 500) achievements.push("⚡ Speed Weaver - High score in few turns")
+    if (tilesRemaining === 0) achievements.push("🎮 Perfect Completion - Used all tiles")
+    if (playerScore >= gameConfig.winningScore) achievements.push("🏅 Victory - Reached winning score")
+    if (playerScore / Math.max(1, turnNumber - 1) >= 100) achievements.push("💫 Efficiency Expert - High average score")
+    
+    return achievements
+  }
+
+  const handleNewGame = () => {
+    const newGameData = initializeGame(gameConfig)
+    setBoardTiles(newGameData.boardTiles)
+    setPlayerHands(newGameData.playerHands)
+    setPlayerDrawPiles(newGameData.playerDrawPiles)
+    setCurrentPlayer(newGameData.currentPlayer)
+    setScores(newGameData.scores)
+    setTurnNumber(newGameData.turnNumber)
+    setGameMessage(newGameData.gameMessage)
+    setSelectedTile(null)
+    setGameEnded(false)
+    setWinner(null)
+    setTilesPlacedThisTurn([])
+    setTurnScore(0)
+    setShowEndGameModal(false)
   }
 
   // Validate mathematical rules (sum equals 5) - matching contract logic
@@ -381,578 +1022,8 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
     }
   }, [])
 
-  // Get all sequences at a position (needed for validation)
-  const getSequencesAtPosition = (x: number, y: number, tiles: TileItem[]) => {
-    const sequences: Array<{ tiles: TileItem[]; sum: number }> = []
-    
-    // Create position lookup
-    const positionMap = new Map<string, TileItem>()
-    tiles.forEach(tile => {
-      if (tile.location.x !== undefined && tile.location.y !== undefined) {
-        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
-      }
-    })
-    
-    // Check horizontal sequence
-    const horizontalSeq = getHorizontalSequence(x, y, positionMap)
-    if (horizontalSeq && horizontalSeq.tiles.length > 1) {
-      sequences.push(horizontalSeq)
-    }
-    
-    // Check vertical sequence
-    const verticalSeq = getVerticalSequence(x, y, positionMap)
-    if (verticalSeq && verticalSeq.tiles.length > 1) {
-      sequences.push(verticalSeq)
-    }
-    
-    return sequences
-  }
-
-  // Quick validation for immediate feedback during placement (updated to match contract)
-  const quickValidatePlacement = (x: number, y: number, tilesPlacedThisTurn: TileItem[], allTiles: TileItem[], selectedTileNumber: number) => {
-    // Bounds check
-    if (x < 0 || x >= 15 || y < 0 || y >= 15) {
-      return { isValid: false, error: "Outside board boundaries" }
-    }
-
-    // Use mathematical placement validation (matching contract)
-    const validation = isValidMathematicalPlacement(x, y, selectedTileNumber, allTiles, tilesPlacedThisTurn)
-    if (!validation.valid) {
-      return { isValid: false, error: validation.reason! }
-    }
-
-    return { isValid: true, error: null }
-  }
-
-  const handleTileSelect = (tile: TileItem) => {
-    console.log('🎯 TILE SELECTED:')
-    console.log('  - Tile value:', getTileValue(tile.id))
-    console.log('  - Tile uniqueId:', tile.uniqueId)
-    console.log('  - Current hand size:', handTiles.length)
-    console.log('  - Hand uniqueIds:', handTiles.map(t => t.uniqueId))
-    setSelectedTile(tile)
-  }
-
-  // Find and return all tiles that remain connected to the main body after a removal
-  const getConnectedTiles = (allTiles: TileItem[]) => {
-    if (allTiles.length <= 1) return allTiles // Single tile or empty board
-    
-    // Find the center tile (if it exists) or use any tile as starting point
-    const centerTile = allTiles.find(tile => tile.location.x === 7 && tile.location.y === 7)
-    const startTile = centerTile || allTiles[0]
-    
-    if (!startTile) return [] // No tiles left
-    
-    // Create position map for O(1) lookup
-    const positionMap = new Map<string, TileItem>()
-    allTiles.forEach(tile => {
-      if (tile.location.x !== undefined && tile.location.y !== undefined) {
-        positionMap.set(`${tile.location.x},${tile.location.y}`, tile)
-      }
-    })
-    
-    // BFS to find all connected tiles
-    const visited = new Set<string>()
-    const connectedTiles: TileItem[] = []
-    const queue = [startTile]
-    const startKey = `${startTile.location.x},${startTile.location.y}`
-    visited.add(startKey)
-    connectedTiles.push(startTile)
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!
-      const x = current.location.x || 0
-      const y = current.location.y || 0
-      
-      // Check all 4 adjacent positions
-      const adjacent = [
-        { x: x - 1, y },
-        { x: x + 1, y },
-        { x, y: y - 1 },
-        { x, y: y + 1 }
-      ]
-      
-      for (const adj of adjacent) {
-        const adjKey = `${adj.x},${adj.y}`
-        if (!visited.has(adjKey) && positionMap.has(adjKey)) {
-          visited.add(adjKey)
-          const connectedTile = positionMap.get(adjKey)!
-          connectedTiles.push(connectedTile)
-          queue.push(connectedTile)
-        }
-      }
-    }
-    
-    return connectedTiles
-  }
-
-  const handleBoardClick = (x: number, y: number) => {
-    if (!selectedTile) {
-      setGameMessage("Select a thread from your hand first!")
-      return
-    }
-
-    // Check if position is already occupied
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    const existingTile = allTiles.find(tile => tile.location.x === x && tile.location.y === y)
-    
-    if (existingTile) {
-      setGameMessage("Position already occupied!")
-      return
-    }
-
-    // Check mathematical placement rules for immediate feedback
-    const validationResult = isValidMathematicalPlacement(x, y, getTileValue(selectedTile.id), allTiles, tilesPlacedThisTurn)
-    if (!validationResult.valid) {
-      setGameMessage(`🚫 ${validationResult.reason}`)
-      return
-    }
-
-    // Valid placement - place the tile
-    const placedTile: TileItem = {
-      id: selectedTile.id,
-      uniqueId: selectedTile.uniqueId,
-      location: { type: 'board', x, y }
-    }
-
-    setTilesPlacedThisTurn(prev => [...prev, placedTile])
-    
-    // Remove from hand
-    updateCurrentPlayerHand(prevHand => 
-      prevHand.filter(tile => tile.uniqueId !== selectedTile.uniqueId)
-    )
-
-    setSelectedTile(null)
-    setGameMessage(`Thread placed at (${x}, ${y})`)
-  }
-
-  const handlePlacedTileClick = (tile: TileItem) => {
-    // Only allow clicking on tiles placed this turn
-    const isPlacedThisTurn = tilesPlacedThisTurn.some(placedTile => 
-      placedTile.location.x === tile.location.x && 
-      placedTile.location.y === tile.location.y
-    )
-    
-    if (!isPlacedThisTurn) return
-    
-    // Remove the clicked tile from this turn's placed tiles
-    const newTilesPlacedThisTurn = tilesPlacedThisTurn.filter(placedTile => 
-      !(placedTile.location.x === tile.location.x && placedTile.location.y === tile.location.y)
-    )
-    
-    // When islands are allowed, we only need to check connectivity among tiles placed this turn
-    // Previously played board tiles should remain as valid islands
-    if (gameConfig.allowIslands) {
-      // Simple case: just remove the clicked tile and keep all others
-      setTilesPlacedThisTurn(newTilesPlacedThisTurn)
-      
-      // Return the clicked tile to hand
-      const returnedTile = {
-        ...tile,
-        location: { type: 'Hand', player: currentPlayerId }
-      }
-      console.log('🏠 RETURNING TILE TO HAND (Islands mode):')
-      console.log('  - Tile value:', getTileValue(returnedTile.id))
-      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
-      console.log('  - Hand size before:', handTiles.length)
-      updateCurrentPlayerHand(prev => {
-        const newHand = [...prev, returnedTile]
-        console.log('  - Hand size after:', newHand.length)
-        console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
-        return newHand
-      })
-      
-      // Recalculate turn score
-      const finalAllTiles = [...boardTiles, ...newTilesPlacedThisTurn]
-      const turnSequences = calculateTurnSequences(finalAllTiles, newTilesPlacedThisTurn)
-      const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
-      setTurnScore(newTurnScore)
-      
-      let message = `Returned ${getTileValue(tile.id)} tile to hand.`
-      if (newTilesPlacedThisTurn.length > 0) {
-        message += ` Click green tiles to return them or end turn when ready.`
-      } else {
-        message += ` End turn when ready.`
-      }
-      setGameMessage(message)
-      return
-    }
-    
-    // When islands are NOT allowed, we need to check connectivity and remove orphaned tiles
-    const allRemainingTiles = [...boardTiles, ...newTilesPlacedThisTurn]
-    
-    // Find all tiles that remain connected to the main body
-    const connectedTiles = getConnectedTiles(allRemainingTiles)
-    const connectedPositions = new Set(
-      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
-    )
-    
-    // Separate connected tiles - board tiles should stay, only filter this turn's tiles
-    const finalBoardTiles = boardTiles.filter(boardTile =>
-      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
-    )
-    
-    const finalTilesPlacedThisTurn = newTilesPlacedThisTurn.filter(placedTile =>
-      connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
-    )
-    
-    // Find tiles that were removed due to being orphaned (only from this turn)
-    const removedBoardTiles = boardTiles.filter(boardTile =>
-      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
-    )
-    
-    const removedPlacedTiles = newTilesPlacedThisTurn.filter(placedTile =>
-      !connectedPositions.has(`${placedTile.location.x},${placedTile.location.y}`)
-    )
-    
-    // Update game state with only connected tiles
-    setBoardTiles(finalBoardTiles)
-    setTilesPlacedThisTurn(finalTilesPlacedThisTurn)
-    
-    // Return the clicked tile to hand
-    const returnedTile = {
-      ...tile,
-      location: { type: 'Hand', player: currentPlayerId }
-    }
-    
-    // Return all removed tiles to hand (clicked tile + any orphaned tiles)
-    const allRemovedTiles = [returnedTile, ...removedBoardTiles, ...removedPlacedTiles].map(t => ({
-      ...t,
-      location: { type: 'Hand', player: currentPlayerId }
-    }))
-    
-    updateCurrentPlayerHand(prev => {
-      const newHand = [...prev, ...allRemovedTiles]
-      console.log('🏠 RETURNING TILE TO HAND (Non-Islands mode):')
-      console.log('  - Tile value:', getTileValue(returnedTile.id))
-      console.log('  - Tile uniqueId:', returnedTile.uniqueId)
-      console.log('  - Hand size before:', handTiles.length)
-      console.log('  - Hand size after:', newHand.length)
-      console.log('  - Hand uniqueIds:', newHand.map(t => t.uniqueId))
-      return newHand
-    })
-    
-    // Calculate new turn score
-    const finalAllTiles = [...finalBoardTiles, ...finalTilesPlacedThisTurn]
-    const turnSequences = calculateTurnSequences(finalAllTiles, finalTilesPlacedThisTurn)
-    const newTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
-    setTurnScore(newTurnScore)
-    
-    // Create feedback message
-    const totalRemoved = allRemovedTiles.length
-    let message = `Returned ${getTileValue(tile.id)} tile to hand.`
-    
-    if (totalRemoved > 1) {
-      message += ` Also removed ${totalRemoved - 1} orphaned tile(s) that became disconnected.`
-    }
-    
-    if (finalTilesPlacedThisTurn.length > 0) {
-      message += ` Click green tiles to return them or end turn when ready.`
-    } else {
-      message += ` End turn when ready.`
-    }
-    
-    setGameMessage(message)
-  }
-
-  const handleEndTurn = () => {
-    if (tilesPlacedThisTurn.length === 0) {
-      setGameMessage("You must place at least one tile before ending your turn!")
-      return
-    }
-
-    // Simplified validation - just check that tiles were placed
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    
-    // Validate each placement follows mathematical rules (already checked during placement)
-    for (const placedTile of tilesPlacedThisTurn) {
-      const validation = isValidMathematicalPlacement(
-        placedTile.location.x!, 
-        placedTile.location.y!, 
-        getTileValue(placedTile.id), 
-        boardTiles, 
-        tilesPlacedThisTurn.filter(t => t !== placedTile)
-      )
-      if (!validation.valid) {
-        setGameMessage(`🚫 Invalid placement: ${validation.reason}`)
-        return
-      }
-    }
-    
-    // Calculate final score for this turn using sequence-based scoring (quinto style)
-    const turnSequences = calculateTurnSequences(allTiles, tilesPlacedThisTurn)
-    const finalTurnScore = turnSequences.reduce((total, seq) => total + (seq.sum * 10), 0)
-    
-    // Validate that we have scoring sequences (sequences that sum to multiples of 5)
-    if (turnSequences.length === 0) {
-      setGameMessage("🚫 Invalid turn: No valid sequences found. All sequences must sum to multiples of 5.")
-      return
-    }
-    
-    // Add turn score to current player's total score
-    const newScores = [...scores]
-    newScores[currentPlayer] += finalTurnScore
-    setScores(newScores)
-
-    // Move tiles from tilesPlacedThisTurn to boardTiles (confirm the tiles)
-    const newBoardTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    setBoardTiles(newBoardTiles)
-
-    // Draw new tiles to maintain exactly 5 tiles in hand
-    const playerPile = playerDrawPiles[currentPlayer] || []
-    const tilesNeeded = Math.min(5 - handTiles.length, playerPile.length)
-    if (tilesNeeded > 0) {
-      const newTiles = drawTilesFromPile(tilesNeeded)
-      const newHandTiles = newTiles.map((tileId, index) => ({
-        id: tileId,
-        uniqueId: `refill-${Date.now()}-${index}`,
-        location: { type: 'Hand', player: currentPlayerId }
-      }))
-      updateCurrentPlayerHand(prev => [...prev, ...newHandTiles])
-    }
-    
-    // Reset turn state
-    setTilesPlacedThisTurn([])
-    setTurnScore(0)
-    setSelectedTile(null)
-    
-    // Check for game end conditions
-    const allPlayersOutOfTiles = Array.from({ length: gameConfig.playerCount }, (_, i) => {
-      const playerHand = i === currentPlayer ? handTiles : (playerHands[i] || [])
-      const playerPile = playerDrawPiles[i] || []
-      return playerHand.length === 0 && playerPile.length === 0
-    }).every(isEmpty => isEmpty)
-    
-    const isGameEnd = allPlayersOutOfTiles || turnNumber >= 200
-
-    // Switch to next player
-    let nextPlayer = currentPlayer
-    let newTurnNumber = turnNumber
-    
-    if (!isGameEnd && gameConfig.playerCount > 1) {
-      nextPlayer = (currentPlayer + 1) % gameConfig.playerCount
-      if (nextPlayer === 0) {
-        newTurnNumber = turnNumber + 1
-      }
-    } else if (!isGameEnd && gameConfig.playerCount === 1) {
-      newTurnNumber = turnNumber + 1
-    }
-    
-    setCurrentPlayer(nextPlayer)
-    setTurnNumber(newTurnNumber)
-
-    // Show turn summary with scoring breakdown
-    const sequenceText = turnSequences.map(seq => {
-      const tileValues = seq.tiles.map(t => getTileValue(t.id)).join('+')
-      return `${tileValues} = ${seq.sum} (×10 = ${seq.sum * 10})`
-    }).join(', ')
-    
-    let completionMessage = ""
-    if (isGameEnd) {
-      setGameEnded(true)
-      setWinner(newScores.indexOf(Math.max(...newScores)))
-      
-      if (allPlayersOutOfTiles) {
-        completionMessage = `🎯 Game Complete! All weavers have finished their threads! Winner: ${gameConfig.playerNames[newScores.indexOf(Math.max(...newScores))]} with ${Math.max(...newScores)} points!`
-      } else {
-        completionMessage = `⏰ Game Complete! Turn limit reached.`
-      }
-      
-      setTimeout(() => setShowEndGameModal(true), 1500)
-    } else {
-      const nextPlayerName = gameConfig.playerNames[nextPlayer] || `Player ${nextPlayer + 1}`
-      if (gameConfig.playerCount > 1) {
-        completionMessage = `${nextPlayerName}'s turn! Place tiles in a single row or column that adds to a multiple of 5.`
-      } else {
-        completionMessage = `Turn ${newTurnNumber} started. Continue weaving...`
-      }
-    }
-
-    const message = turnSequences.length > 0
-      ? `🎉 Turn complete! ${sequenceText}. Total turn score: ${finalTurnScore}. Game total: ${newScores[currentPlayer]}. ${completionMessage}`
-      : `🎉 Turn complete! Scored ${finalTurnScore} points. Total: ${newScores[currentPlayer]}. ${completionMessage}`
-
-    setGameMessage(message)
-  }
-
-  const handleUndoTurn = () => {
-    if (tilesPlacedThisTurn.length === 0) {
-      setGameMessage("No tiles to undo!")
-      return
-    }
-
-    console.log('🔄 UNDO TURN DEBUG:')
-    console.log('  - Hand size BEFORE undo:', handTiles.length)
-    console.log('  - Tiles placed this turn:', tilesPlacedThisTurn.length)
-    console.log('  - Expected hand size after undo:', handTiles.length + tilesPlacedThisTurn.length)
-
-    // Calculate what would remain after removing all tiles placed this turn
-    const tilesToRemove = tilesPlacedThisTurn
-    const remainingBoardTiles = boardTiles.filter(boardTile => 
-      !tilesToRemove.some(removeTile => 
-        boardTile.location.x === removeTile.location.x && 
-        boardTile.location.y === removeTile.location.y
-      )
-    )
-
-    // Find all tiles that remain connected to the main body
-    const connectedTiles = getConnectedTiles(remainingBoardTiles)
-    const connectedPositions = new Set(
-      connectedTiles.map(t => `${t.location.x},${t.location.y}`)
-    )
-    
-    // Separate connected from disconnected board tiles
-    const finalBoardTiles = remainingBoardTiles.filter(boardTile =>
-      connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
-    )
-    
-    const removedIslandTiles = remainingBoardTiles.filter(boardTile =>
-      !connectedPositions.has(`${boardTile.location.x},${boardTile.location.y}`)
-    )
-
-    // Update game state with only connected tiles
-    setBoardTiles(finalBoardTiles)
-
-    // Return all removed tiles to hand (placed this turn + any islands)
-    const allRemovedTiles = [...tilesToRemove, ...removedIslandTiles].map(tile => ({
-      ...tile,
-      location: { type: 'Hand', player: currentPlayerId }
-    }))
-    
-    console.log('  - Total tiles being returned to hand:', allRemovedTiles.length)
-    console.log('  - Tiles from this turn:', tilesToRemove.length)
-    console.log('  - Island tiles removed:', removedIslandTiles.length)
-    
-    updateCurrentPlayerHand(prev => {
-      const newHand = [...prev, ...allRemovedTiles]
-      console.log('  - Hand size AFTER undo:', newHand.length)
-      return newHand
-    })
-
-    // Reset turn state
-    setTilesPlacedThisTurn([])
-    setTurnScore(0)
-    setSelectedTile(null)
-    
-    // Create feedback message
-    let message = `Undid ${tilesToRemove.length} tile placements.`
-    if (removedIslandTiles.length > 0) {
-      message += ` Also removed ${removedIslandTiles.length} island tile(s) that became disconnected.`
-    }
-    message += ` Try a different strategy!`
-    
-    setGameMessage(message)
-  }
-
-  const handleSkipTurn = () => {
-    // Allow player to skip turn without placing tiles (with penalty)
-    const penalty = Math.min(50, scores[currentPlayer])
-    const newScores = [...scores]
-    newScores[currentPlayer] = Math.max(0, newScores[currentPlayer] - penalty)
-    setScores(newScores)
-
-    // Draw one tile if possible from personal pile (from original logic)
-    const personalPile = playerDrawPiles[currentPlayer] || []
-    if (personalPile.length > 0 && handTiles.length < 5) {
-      const newTiles = drawTilesFromPile(1)
-      const newHandTile = {
-        id: newTiles[0],
-        uniqueId: `skip-${Date.now()}`,
-        location: { type: 'Hand', player: currentPlayerId }
-      }
-      updateCurrentPlayerHand(prev => [...prev, newHandTile])
-    }
-
-    // Switch to next player in multiplayer (from original logic)
-    let nextPlayer = currentPlayer
-    let newTurnNumber = turnNumber
-    
-    if (gameConfig.playerCount > 1) {
-      nextPlayer = (currentPlayer + 1) % gameConfig.playerCount
-      if (nextPlayer === 0) {
-        newTurnNumber = turnNumber + 1 // Complete round
-      }
-    } else {
-      newTurnNumber = turnNumber + 1
-    }
-
-    setCurrentPlayer(nextPlayer)
-    setTurnNumber(newTurnNumber)
-    setTilesPlacedThisTurn([])
-    setTurnScore(0)
-    setSelectedTile(null)
-
-    const nextPlayerName = gameConfig.playerNames[nextPlayer] || `Player ${nextPlayer + 1}`
-    const messageEnd = gameConfig.playerCount === 1 
-      ? `Current score: ${newScores[currentPlayer]}`
-      : `${nextPlayerName}'s turn!`
-
-    setGameMessage(`Turn skipped. ${penalty > 0 ? `Lost ${penalty} points as penalty.` : ''} ${messageEnd}`)
-  }
-
-  const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed)
-  }
-
-  // Helper functions for end game modal
-  const formatGameTime = () => {
-    const totalMs = Date.now() - gameStartTime
-    const minutes = Math.floor(totalMs / 60000)
-    const seconds = Math.floor((totalMs % 60000) / 1000)
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
-
-  const calculatePlayerStats = (playerIndex: number) => {
-    const score = scores[playerIndex] || 0
-    const turns = Math.max(1, turnNumber - 1)
-    return {
-      name: gameConfig.playerNames[playerIndex] || `Player ${playerIndex + 1}`,
-      score: score,
-      turns: turns,
-      totalTilesPlaced: boardTiles.length - 1, // Subtract center tile
-      longestSequence: 5, // TODO: Calculate actual longest sequence
-      averageScore: score / turns
-    }
-  }
-
-  const generateAchievements = () => {
-    const achievements: string[] = []
-    const playerScore = scores[0] || 0
-    const tilesPlaced = boardTiles.length - 1
-    const tilesRemaining = (playerDrawPiles[0]?.length || 0) + (playerHands[0]?.length || 0)
-    
-    if (playerScore >= 1000) achievements.push("🏆 Score Master - Reached 1000+ points")
-    if (playerScore >= 2000) achievements.push("🌟 Legendary Weaver - Reached 2000+ points") 
-    if (tilesPlaced >= 30) achievements.push("🎯 Tile Master - Placed 30+ tiles")
-    if (turnNumber <= 20 && playerScore >= 500) achievements.push("⚡ Speed Weaver - High score in few turns")
-    if (tilesRemaining === 0) achievements.push("🎮 Perfect Completion - Used all tiles")
-    if (playerScore >= gameConfig.winningScore) achievements.push("🏅 Victory - Reached winning score")
-    if (playerScore / Math.max(1, turnNumber - 1) >= 100) achievements.push("💫 Efficiency Expert - High average score")
-    
-    return achievements
-  }
-
-  const handleNewGame = () => {
-    // Reset all game state for a new game
-    const newGameData = initializeGame(gameConfig)
-    setBoardTiles(newGameData.boardTiles)
-    setPlayerHands(newGameData.playerHands)
-    setPlayerDrawPiles(newGameData.playerDrawPiles)
-    setCurrentPlayer(newGameData.currentPlayer)
-    setScores(newGameData.scores)
-    setTurnNumber(newGameData.turnNumber)
-    setGameMessage(newGameData.gameMessage)
-    setSelectedTile(null)
-    setGameEnded(false)
-    setWinner(null)
-    setTilesPlacedThisTurn([])
-    setTurnScore(0)
-    setShowEndGameModal(false)
-  }
-
   return (
     <div css={containerStyle}>
-      {/* Main Game Area */}
       <div css={mainAreaStyle(sidebarCollapsed)}>
         <NewAgeGameHeader
           gameConfig={gameConfig}
@@ -975,7 +1046,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
           sidebarCollapsed={sidebarCollapsed}
         />
 
-        {/* Game Board */}
         <div css={boardAreaStyle}>
           <div css={boardContainerStyle} ref={boardContainerRef}>
             <button 
@@ -1030,16 +1100,25 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
           </div>
         </div>
 
-        {/* Current Player Hand */}
         <div css={handAreaStyle}>
           <div css={handHeaderStyle}>
             <h3 css={handTitleStyle}>
               {gameConfig.playerNames[currentPlayer]}'s Threads ({handTiles.length}/5)
             </h3>
             <div css={handActionsStyle}>
+              {isBlockchainMode && (
+                <button 
+                  css={refreshButtonStyle} 
+                  onClick={handleRefreshBlockchain}
+                  disabled={cacheLoading}
+                >
+                  {cacheLoading ? '⏳' : '🔄'} Refresh
+                </button>
+              )}
+              
               {tilesPlacedThisTurn.length > 0 && (
                 <button css={endTurnButtonStyle} onClick={handleEndTurn}>
-                  End Turn ({turnScore} pts)
+                  {isBlockchainMode ? 'Submit to Blockchain' : 'End Turn'} ({turnScore} pts)
                 </button>
               )}
               {tilesPlacedThisTurn.length > 0 && (
@@ -1065,7 +1144,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
           </div>
         </div>
 
-        {/* Status Message */}
         {gameMessage && (
           <div css={statusStyle}>
             {gameMessage}
@@ -1073,7 +1151,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
         )}
       </div>
 
-      {/* Sidebar */}
       <div css={sidebarStyle(sidebarCollapsed)}>
         <NewAgePlayerPanel
           gameConfig={gameConfig}
@@ -1094,7 +1171,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
         />
       </div>
 
-      {/* Mini Sidebar - Shows when main sidebar is collapsed */}
       {sidebarCollapsed && (
         <div css={miniSidebarStyle}>
           <div css={miniSidebarHeaderStyle}>
@@ -1102,7 +1178,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
           </div>
           
           <div css={miniSidebarContentStyle}>
-            {/* Current Player */}
             <div css={miniPlayerSectionStyle}>
               <div css={miniPlayerNameStyle}>
                 {gameConfig.playerNames[currentPlayer]}
@@ -1112,7 +1187,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
               </div>
             </div>
 
-            {/* All Players Scores */}
             <div css={miniScoresSectionStyle}>
               <div css={miniScoresTitleStyle}>Scores</div>
               {gameConfig.playerNames.map((playerName, index) => {
@@ -1140,7 +1214,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
               })}
             </div>
 
-            {/* Game Status */}
             <div css={miniStatusSectionStyle}>
               <div css={miniStatusItemStyle}>
                 <span css={miniStatusLabelStyle}>Turn:</span>
@@ -1163,7 +1236,6 @@ export function NewAgeGameBoard({ gameConfig, onBackToSetup }: NewAgeGameBoardPr
         </div>
       )}
 
-      {/* End Game Modal */}
       {showEndGameModal && (
         <NewAgeEndGameModal
           isOpen={showEndGameModal}
@@ -1560,5 +1632,25 @@ const resetButtonStyle = css`
 
   &:active {
     transform: scale(0.95);
+  }
+`
+
+const refreshButtonStyle = css`
+  padding: 8px 16px;
+  background: rgba(255, 215, 0, 0.2);
+  border: none;
+  border-radius: 4px;
+  color: #FFD700;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 215, 0, 0.3);
+  }
+
+  &:disabled {
+    background: rgba(255, 215, 0, 0.1);
+    cursor: not-allowed;
   }
 `

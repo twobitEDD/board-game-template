@@ -1,1012 +1,993 @@
 /** @jsxImportSource @emotion/react */
-import { css, keyframes } from '@emotion/react'
-import { useMemo, useEffect, useState } from 'react'
-import { NumberTile } from './NumberTile'
-import { NumberTileId } from '../../../rules/src/material/NumberTileId'
-
-interface TileItem {
-  id: NumberTileId
-  uniqueId: string
-  location: {
-    type: string
-    x?: number
-    y?: number
-    player?: any
-  }
-}
+import React, { useState, useEffect, useMemo } from 'react'
+import { css } from '@emotion/react'
+import { useBlockchainGame } from '../hooks/useBlockchainGame'
+import { useGameCache } from '../hooks/useGameCache'
 
 interface GameBoardProps {
-  boardTiles: TileItem[]
-  tilesPlacedThisTurn: TileItem[]
-  selectedTile: TileItem | null
-  onBoardClick: (x: number, y: number) => void
-  onPlacedTileClick: (tile: TileItem) => void
-  isValidPlacement: (x: number, y: number) => boolean
-}
-
-// Floating mystical orbs for ambiance
-function FloatingMysticalOrbs() {
-  const mysticalOrbs = Array.from({ length: 6 }, (_, i) => ({
-    id: i,
-    delay: Math.random() * 8,
-    duration: 12 + Math.random() * 8,
-    x: Math.random() * 100,
-    size: 3 + Math.random() * 4,
-    color: ['#FFD700', '#FFA500', '#FF8C00', '#DAA520', '#B8860B', '#F4A460'][i]
-  }))
-
-  return (
-    <div css={orbContainerStyle}>
-      {mysticalOrbs.map(orb => (
-        <div
-          key={orb.id}
-          css={floatingOrbStyle({
-            delay: orb.delay,
-            duration: orb.duration,
-            x: orb.x,
-            size: orb.size,
-            color: orb.color
-          })}
-        />
-      ))}
-    </div>
-  )
-}
-
-// Stitching ripple when patches are sewn together
-function StitchingRipple({ x, y, trigger }: { x: number, y: number, trigger: number }) {
-  if (trigger === 0) return null
-  
-  return (
-    <div
-      css={stitchingRippleStyle}
-      style={{
-        left: `${(x / 15) * 100}%`,
-        top: `${(y / 15) * 100}%`,
-      }}
-    />
-  )
-}
-
-// Zoom controls component
-function ZoomControls({ 
-  scale, 
-  onZoomIn, 
-  onZoomOut, 
-  onReset, 
-  isZoomedIn, 
-  isZoomedOut 
-}: {
-  scale: number
-  onZoomIn: () => void
-  onZoomOut: () => void
-  onReset: () => void
-  isZoomedIn: boolean
-  isZoomedOut: boolean
-}) {
-  return (
-    <div css={zoomControlsStyle}>
-      <div css={zoomButtonGroupStyle}>
-        <button 
-          css={zoomButtonStyle}
-          onClick={onZoomIn}
-          title="Zoom In"
-        >
-          🔍+
-        </button>
-        <button 
-          css={zoomButtonStyle}
-          onClick={onZoomOut}
-          title="Zoom Out"  
-        >
-          🔍-
-        </button>
-        <button 
-          css={resetButtonStyle}
-          onClick={onReset}
-          title="Reset View"
-        >
-          🎯
-        </button>
-      </div>
-      <div css={zoomIndicatorStyle}>
-        {Math.round(scale * 100)}%
-      </div>
-      {isZoomedIn && (
-        <div css={zoomHintStyle}>
-          ✨ Magical quilt expansion active!
-        </div>
-      )}
-      {isZoomedOut && (
-        <div css={zoomHintStyle}>
-          🌟 Overview of the mystical loom
-        </div>
-      )}
-    </div>
-  )
-}
-
-export function GameBoard({
-  boardTiles,
-  tilesPlacedThisTurn,
-  selectedTile,
-  onBoardClick,
-  onPlacedTileClick,
-  isValidPlacement
-}: GameBoardProps) {
-  // Simple viewport state without complex zoom/pan functionality
-  const viewport = { scale: 1, offsetX: 0, offsetY: 0, isDragging: false }
-  const actions = {
-    handleMouseDown: () => {},
-    handleMouseMove: () => {},
-    handleMouseUp: () => {},
-    handleWheel: () => {},
-    handleTouchStart: () => {},
-    handleTouchMove: () => {},
-    handleTouchEnd: () => {},
-    resetViewport: () => {},
-    setScale: () => {},
-    centerOn: () => {}
+  gameId: number
+  playerRole: {
+    isPlayer: boolean
+    isSpectator: boolean
+    canMakeMove: boolean
+    playerIndex: number | null
+    address: string | null
   }
-  const getVisibleTileRange = () => ({ startX: 0, endX: 14, startY: 0, endY: 14, centerX: 7, centerY: 7 })
-  const getTransformStyle = () => ({ transform: 'none' })
-  const isZoomedIn = false
-  const isZoomedOut = false
+  compact?: boolean // For gallery view
+  onClose?: () => void
+}
 
-  const [stitchTrigger, setStitchTrigger] = useState(0)
-  const [lastStitchedPosition, setLastStitchedPosition] = useState({ x: 0, y: 0 })
+interface PlacedTile {
+  x: number
+  y: number
+  number: number
+}
 
-  // Track when new patches are sewn in
-  useEffect(() => {
-    if (tilesPlacedThisTurn.length > 0) {
-      const lastTile = tilesPlacedThisTurn[tilesPlacedThisTurn.length - 1]
-      if (lastTile.location.x !== undefined && lastTile.location.y !== undefined) {
-        setLastStitchedPosition({ x: lastTile.location.x, y: lastTile.location.y })
-        setStitchTrigger(prev => prev + 1)
-      }
-    }
-  }, [tilesPlacedThisTurn.length])
+interface TilePlacement {
+  number: number
+  x: number
+  y: number
+}
 
-  // Pre-compute occupied positions for fast lookup
-  const occupiedPositions = useMemo(() => {
-    const occupied = new Set<string>()
-    boardTiles.forEach(tile => occupied.add(`${tile.location.x},${tile.location.y}`))
-    tilesPlacedThisTurn.forEach(tile => occupied.add(`${tile.location.x},${tile.location.y}`))
-    return occupied
-  }, [boardTiles, tilesPlacedThisTurn])
+export function GameBoard({ gameId, playerRole, compact = false, onClose }: GameBoardProps) {
+  console.log(`🎮 GameBoard: Initializing for game ${gameId}`, {
+    isPlayer: playerRole.isPlayer,
+    canMakeMove: playerRole.canMakeMove,
+    playerIndex: playerRole.playerIndex,
+    compact
+  })
   
-  // Calculate quilting connections - which patches are adjacent
-  const quiltConnections = useMemo(() => {
-    const connections = new Set<string>()
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    
-    allTiles.forEach(tile => {
-      const x = tile.location.x || 0
-      const y = tile.location.y || 0
+  // Game state
+  const [placedTiles, setPlacedTiles] = useState<PlacedTile[]>([])
+  const [currentGame, setCurrentGame] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [allPlayersScores, setAllPlayersScores] = useState<{[address: string]: number}>({})
+
+  // Player-specific state (only used when isPlayer is true)
+  const [playerHand, setPlayerHand] = useState<number[]>([])
+  const [selectedTile, setSelectedTile] = useState<number | null>(null)
+  const [pendingPlacements, setPendingPlacements] = useState<TilePlacement[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const blockchainGame = useBlockchainGame()
+
+  // Fetch game data
+  const fetchGameData = async () => {
+    try {
+      console.log(`🔍 GameBoard: Fetching game ${gameId} data`)
+      setIsLoading(true)
+      setError(null)
       
-      // Check for adjacent tiles to create stitching connections
-      const adjacent = [
-        { dx: 1, dy: 0, direction: 'right' },
-        { dx: 0, dy: 1, direction: 'down' }
-      ]
+      const allGames = await blockchainGame.getAllGames()
+      const game = allGames.find(g => g.id === gameId)
       
-      adjacent.forEach(({ dx, dy, direction }) => {
-        const adjX = x + dx
-        const adjY = y + dy
-        const hasAdjacentTile = allTiles.some(t => t.location.x === adjX && t.location.y === adjY)
-        
-        if (hasAdjacentTile) {
-          connections.add(`${x},${y}-${direction}`)
-        }
-      })
-    })
-    
-    return connections
-  }, [boardTiles, tilesPlacedThisTurn])
-  
-  // Calculate proximity-based scaling for sewing spots
-  const getSewingScale = useMemo(() => {
-    return (x: number, y: number) => {
-      const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-      if (allTiles.length === 0) return 1.0
-      
-      let minDistance = Infinity
-      allTiles.forEach(tile => {
-        const tileX = tile.location.x || 0
-        const tileY = tile.location.y || 0
-        const distance = Math.sqrt(Math.pow(x - tileX, 2) + Math.pow(y - tileY, 2))
-        minDistance = Math.min(minDistance, distance)
-      })
-      
-      const scale = Math.max(0.8, Math.min(1.0, 1.1 - (minDistance * 0.04)))
-      return scale
-    }
-  }, [boardTiles, tilesPlacedThisTurn])
-  
-  // Get visible tile range for performance optimization
-  const visibleRange = getVisibleTileRange()
-  
-  // Pre-calculate valid placements (only for visible tiles when zoomed)
-  const validPlacements = useMemo(() => {
-    if (!selectedTile) return new Set<string>()
-    
-    const valid = new Set<string>()
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    
-    // Use visible range to limit calculations when zoomed in
-    const shouldOptimize = viewport.scale > 1.2 && allTiles.length > 20
-    
-    if (shouldOptimize) {
-      // Only check positions within visible range + buffer
-      const buffer = 2
-      const startX = Math.max(0, visibleRange.startX - buffer)
-      const endX = Math.min(14, visibleRange.endX + buffer)
-      const startY = Math.max(0, visibleRange.startY - buffer)
-      const endY = Math.min(14, visibleRange.endY + buffer)
-      
-      for (let x = startX; x <= endX; x++) {
-        for (let y = startY; y <= endY; y++) {
-          const posKey = `${x},${y}`
-          if (!occupiedPositions.has(posKey) && isValidPlacement(x, y)) {
-            valid.add(posKey)
-          }
-        }
-      }
-    } else {
-      // Original logic for normal zoom levels
-      if (allTiles.length > 50) {
-        const checkPositions = new Set<string>()
-        allTiles.slice(-20).forEach(tile => {
-          const x = tile.location.x || 0
-          const y = tile.location.y || 0
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              if (dx === 0 && dy === 0) continue
-              const newX = x + dx
-              const newY = y + dy
-              if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
-                checkPositions.add(`${newX},${newY}`)
-              }
-            }
-          }
+      if (game) {
+        console.log(`✅ GameBoard: Found game ${gameId}:`, {
+          state: game.state,
+          players: game.playerAddresses.length,
+          turnNumber: game.turnNumber,
+          playerAddresses: game.playerAddresses,
+          scores: game.playerScores
         })
+        setCurrentGame(game)
+        setError(null)
         
-        checkPositions.forEach(pos => {
-          const [x, y] = pos.split(',').map(Number)
-          if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
-            valid.add(pos)
-          }
+        // Create scores map
+        const scoresMap: {[address: string]: number} = {}
+        game.playerAddresses.forEach((addr: string, index: number) => {
+          scoresMap[addr] = game.playerScores[index] || 0
         })
+        setAllPlayersScores(scoresMap)
+        
       } else {
-        const checkPositions = new Set<string>()
-        
-        allTiles.forEach(tile => {
-          const x = tile.location.x || 0
-          const y = tile.location.y || 0
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              if (dx === 0 && dy === 0) continue
-              const newX = x + dx
-              const newY = y + dy
-              if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
-                checkPositions.add(`${newX},${newY}`)
-              }
-            }
-          }
-        })
-        
-        if (allTiles.length === 0) {
-          for (let x = 6; x <= 8; x++) {
-            for (let y = 6; y <= 8; y++) {
-              checkPositions.add(`${x},${y}`)
-            }
-          }
-        }
-        
-        checkPositions.forEach(pos => {
-          const [x, y] = pos.split(',').map(Number)
-          if (!occupiedPositions.has(pos) && isValidPlacement(x, y)) {
-            valid.add(pos)
-          }
-        })
+        console.warn(`⚠️ GameBoard: Game ${gameId} not found in blockchain games`)
+        setError(`Game ${gameId} not found`)
       }
-    }
-    
-    return valid
-  }, [selectedTile, boardTiles, tilesPlacedThisTurn, isValidPlacement, occupiedPositions, viewport.scale, visibleRange])
-
-  // Calculate sewing positions (same as magical positions but renamed)
-  const sewingPositions = useMemo(() => {
-    if (!selectedTile) return new Set<string>()
-    
-    const sewing = new Set<string>()
-    const allTiles = [...boardTiles, ...tilesPlacedThisTurn]
-    
-    allTiles.forEach(tile => {
-      const x = tile.location.x || 0
-      const y = tile.location.y || 0
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          if (dx === 0 && dy === 0) continue
-          const newX = x + dx
-          const newY = y + dy
-          if (newX >= 0 && newX < 15 && newY >= 0 && newY < 15) {
-            sewing.add(`${newX},${newY}`)
-          }
-        }
-      }
-    })
-    
-    if (allTiles.length === 0) {
-      for (let x = 6; x <= 8; x++) {
-        for (let y = 6; y <= 8; y++) {
-          sewing.add(`${x},${y}`)
-        }
-      }
-    }
-    
-    return sewing
-  }, [selectedTile, boardTiles, tilesPlacedThisTurn])
-
-  // Handle board cell clicks with coordinate transformation
-  const handleCellClick = (row: number, col: number, event: React.MouseEvent) => {
-    event.stopPropagation()
-    
-    const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
-    const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
-    
-    if (boardTile && isPlacedThisTurn) {
-      onPlacedTileClick(boardTile)
-    } else {
-      onBoardClick(col, row)
+    } catch (error) {
+      console.error(`❌ GameBoard: Error fetching game ${gameId}:`, error)
+      setError(`Failed to load game: ${error.message}`)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  return (
-          <div css={quiltingWorkspaceStyle}>
-      <FloatingMysticalOrbs />
-      <StitchingRipple x={lastStitchedPosition.x} y={lastStitchedPosition.y} trigger={stitchTrigger} />
+  // Load game data on mount and when gameId changes
+  useEffect(() => {
+    fetchGameData()
+  }, [gameId])
+
+  // Update player hand when blockchainGame.playerInfo changes (only for players)
+  useEffect(() => {
+    if (playerRole.isPlayer && blockchainGame.playerInfo) {
+      setPlayerHand(blockchainGame.playerInfo.hand || [])
+      console.log(`🔄 GameBoard: Player hand updated:`, blockchainGame.playerInfo.hand)
+    }
+  }, [blockchainGame.playerInfo, playerRole.isPlayer])
+
+  // Calculate actual values that will be passed to cache
+  const actualContractAddress = blockchainGame.contractAddress || '0xc0f6F4Fcddd6327081E1F3e05D83752926aDd72F'
+  const actualNetworkName = blockchainGame.networkName || 'Base Sepolia'
+  const actualChainId = blockchainGame.currentNetwork || 84532
+
+  // Use cache system for efficient tile fetching
+  const { 
+    placedTiles: cachedTiles, 
+    currentGame: cachedGame, 
+    allPlayersScores: cachedScores,
+    isLoading: cacheLoading,
+    error: cacheError,
+    refreshData: refreshCache
+  } = useGameCache({
+    blockchainGameId: gameId,
+    contractAddress: actualContractAddress,
+    networkName: actualNetworkName,
+    chainId: actualChainId
+  })
+
+  // Update local state when cache data changes
+  useEffect(() => {
+    if (cachedTiles) {
+      setPlacedTiles(cachedTiles.map(tile => ({
+        x: tile.x,
+        y: tile.y,
+        number: tile.number || tile.displayNumber
+      })))
+      console.log(`✅ GameBoard: Updated ${cachedTiles.length} placed tiles from cache`)
+    }
+  }, [cachedTiles])
+
+  // Use cached game data if available
+  useEffect(() => {
+    if (cachedGame) {
+      setCurrentGame(cachedGame)
+      setAllPlayersScores(cachedScores)
+      setError(null)
+      console.log(`✅ GameBoard: Updated game data from cache for game ${gameId}`)
+    }
+  }, [cachedGame, cachedScores, gameId])
+
+  // Handle cache errors
+  useEffect(() => {
+    if (cacheError) {
+      setError(cacheError)
+    }
+  }, [cacheError])
+
+  // Player action handlers (only used when isPlayer is true)
+  const handleTileSelect = (tileNumber: number) => {
+    if (!playerRole.canMakeMove) return
+    setSelectedTile(selectedTile === tileNumber ? null : tileNumber)
+    console.log(`🎯 Selected tile: ${tileNumber}`)
+  }
+
+  const handleCellClick = (x: number, y: number) => {
+    if (!playerRole.canMakeMove || !selectedTile) return
+    
+    // Check if cell is already occupied
+    const isOccupied = placedTiles.some(tile => tile.x === x && tile.y === y) ||
+                      pendingPlacements.some(placement => placement.x === x && placement.y === y)
+    
+    if (isOccupied) {
+      console.log(`❌ Cell (${x}, ${y}) is already occupied`)
+      return
+    }
+
+    // Add to pending placements
+    const newPlacement: TilePlacement = { number: selectedTile, x, y }
+    setPendingPlacements(prev => [...prev, newPlacement])
+    setSelectedTile(null) // Deselect after placing
+    
+    console.log(`📍 Added tile ${selectedTile} to (${x}, ${y})`)
+  }
+
+  const removePendingPlacement = (index: number) => {
+    setPendingPlacements(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const clearPendingPlacements = () => {
+    setPendingPlacements([])
+    setSelectedTile(null)
+  }
+
+  const submitTurn = async () => {
+    if (pendingPlacements.length === 0) {
+      console.log('❌ No tiles to place')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      console.log(`🚀 Submitting turn with ${pendingPlacements.length} placements:`, pendingPlacements)
       
-      {/* Zoom Controls */}
-      <ZoomControls
-        scale={viewport.scale}
-        onZoomIn={() => actions.setScale()}
-        onZoomOut={() => actions.setScale()}
-        onReset={actions.resetViewport}
-        isZoomedIn={isZoomedIn}
-        isZoomedOut={isZoomedOut}
-      />
+      const txHash = await blockchainGame.playTurn(gameId, pendingPlacements)
       
-      {/* Pan/Zoom Instructions */}
-      <div css={instructionsStyle}>
-        🖱️ Shift+drag or middle-click+drag to pan • 🎡 Ctrl+scroll to zoom • 🎯 Click controls to reset
-      </div>
+      console.log(`✅ Turn submitted successfully:`, txHash)
       
-      {/* Zoomable/Pannable Board Container */}
-      <div 
-        css={quiltGridContainerStyle}
-        onMouseDown={actions.handleMouseDown}
-        onMouseMove={actions.handleMouseMove}
-        onMouseUp={actions.handleMouseUp}
-        onWheel={actions.handleWheel}
-        onTouchStart={actions.handleTouchStart}
-        onTouchMove={actions.handleTouchMove}
-        onTouchEnd={actions.handleTouchEnd}
+      // Clear pending placements and refresh data
+      setPendingPlacements([])
+      setSelectedTile(null)
+      await refreshCache()
+      await fetchGameData()
+      
+    } catch (error) {
+      console.error('❌ Failed to submit turn:', error)
+      setError(`Failed to submit turn: ${error.message}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const skipTurn = async () => {
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      console.log(`⏭️ Skipping turn for game ${gameId}`)
+      
+      const txHash = await blockchainGame.skipTurn(gameId)
+      
+      console.log(`✅ Turn skipped successfully:`, txHash)
+      
+      // Clear any pending placements and refresh data
+      setPendingPlacements([])
+      setSelectedTile(null)
+      await refreshCache()
+      await fetchGameData()
+      
+    } catch (error) {
+      console.error('❌ Failed to skip turn:', error)
+      setError(`Failed to skip turn: ${error.message}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Update game message based on state
+  const gameMessage = useMemo(() => {
+    const loading = isLoading || cacheLoading
+    const errorMsg = error || cacheError
+    
+    if (errorMsg) {
+      return `Error: ${errorMsg}`
+    } else if (loading) {
+      return 'Loading game...'
+    } else if (!currentGame) {
+      return 'Game not found'
+    } else if (currentGame.state === 0) {
+      return 'Game is in setup phase'
+    } else if (currentGame.state === 1) {
+      const currentPlayerAddr = currentGame.playerAddresses[currentGame.currentPlayerIndex]
+      return `Game in progress - ${currentPlayerAddr?.slice(0, 6)}...${currentPlayerAddr?.slice(-4)}'s turn`
+    } else if (currentGame.state === 2) {
+      return 'Game completed!'
+    } else {
+      return 'Game cancelled'
+    }
+  }, [currentGame, error, cacheError, isLoading, cacheLoading])
+
+  // Player information
+  const players = useMemo(() => {
+    if (!currentGame) return []
+    
+    return currentGame.playerAddresses.map((address: string, index: number) => ({
+      address,
+      name: `Player ${index + 1}`,
+      score: currentGame.playerScores?.[index] || allPlayersScores[address] || 0,
+      isCurrent: index === currentGame.currentPlayerIndex,
+      isYou: playerRole.isPlayer && index === playerRole.playerIndex
+    }))
+  }, [currentGame, allPlayersScores, playerRole])
+
+  // Render a board cell
+  const renderCell = (x: number, y: number) => {
+    const placedTile = placedTiles.find(tile => tile.x === x && tile.y === y)
+    const pendingTile = pendingPlacements.find(placement => placement.x === x && placement.y === y)
+    const isCenter = x === 7 && y === 7
+    
+    const tile = placedTile || pendingTile
+    
+    return (
+      <div
+        key={`${x}-${y}`}
+        css={[
+          cellStyle,
+          isCenter && centerCellStyle,
+          playerRole.canMakeMove && selectedTile && !tile && clickableCellStyle
+        ]}
+        onClick={() => playerRole.isPlayer && handleCellClick(x, y)}
       >
-        <div 
-          css={quiltGridStyle}
-          style={getTransformStyle()}
-        >
+        {tile ? (
+          <div css={[tileStyle, pendingTile && pendingTileStyle]}>
+            <span css={tileNumberStyle}>{tile.number}</span>
+          </div>
+        ) : isCenter ? (
+          <div css={centerMarkerStyle}>★</div>
+        ) : null}
+      </div>
+    )
+  }
+
+  // Compact view for gallery
+  if (compact) {
+    return (
+      <div css={compactContainerStyle}>
+        <div css={compactBoardStyle}>
           {Array.from({ length: 15 }, (_, row) =>
             Array.from({ length: 15 }, (_, col) => {
-              const posKey = `${col},${row}`
-              const boardTile = boardTiles.find((tile: TileItem) => tile.location.x === col && tile.location.y === row)
-              const isCenterPin = row === 7 && col === 7
-              const isPlacedThisTurn = tilesPlacedThisTurn.some(tile => tile.location.x === col && tile.location.y === row)
-              const isOccupied = occupiedPositions.has(posKey)
-              const canSewHere = sewingPositions.has(posKey)
-              
-              const canPlacePatch = selectedTile && !isOccupied && canSewHere && validPlacements.has(posKey)
-              const blockedSewing = selectedTile && !isOccupied && canSewHere && !validPlacements.has(posKey)
-              
-              const sewingScale = canPlacePatch ? getSewingScale(col, row) : 0
-              
-              // Check for stitching connections
-              const hasRightStitch = quiltConnections.has(`${col},${row}-right`)
-              const hasDownStitch = quiltConnections.has(`${col},${row}-down`)
+              const tile = placedTiles.find(t => t.x === col && t.y === row)
+              const isCenter = row === 7 && col === 7
               
               return (
-                <div 
-                  key={`${row}-${col}`} 
-                  css={css`
-                    ${patchSlotStyle}
-                    ${isCenterPin ? centerPinStyle : ''}
-                    ${!boardTile ? emptySlotStyle : ''}
-                    ${canPlacePatch ? sewingSpotStyle(sewingScale) : ''}
-                    ${blockedSewing ? blockedSewingStyle : ''}
-                    ${isPlacedThisTurn ? newPatchGlowStyle : ''}
-                    ${isPlacedThisTurn ? clickablePatchSlotStyle : ''}
-                  `}
-                  onClick={(e) => handleCellClick(row, col, e)}
+                <div
+                  key={`${row}-${col}`}
+                  css={[compactCellStyle, isCenter && compactCenterStyle]}
                 >
-                  {boardTile && (
-                    <div css={patchHolderStyle}>
-                      <NumberTile 
-                        tileId={boardTile.id} 
-                        size="large"
-                        isPlaced={!isPlacedThisTurn}
-                      />
-                      {isPlacedThisTurn && (
-                        <div css={returnIconStyle}>🧶</div>
-                      )}
-                      {isPlacedThisTurn && <div css={newPatchStitchingStyle} key={`stitch-${stitchTrigger}`} />}
-                    </div>
-                  )}
-                  
-                  {/* Stitching connections to adjacent patches */}
-                  {hasRightStitch && <div css={rightStitchStyle} />}
-                  {hasDownStitch && <div css={downStitchStyle} />}
-                  
-                  {!boardTile && isCenterPin && <div css={centerPinCrystalStyle}>📍</div>}
-                  {canPlacePatch && (
-                    <div css={sewingIndicatorStyle(sewingScale)}>🧷</div>
-                  )}
+                  {tile ? (
+                    <span css={compactTileNumberStyle}>{tile.number}</span>
+                  ) : isCenter ? (
+                    <span css={compactCenterMarkerStyle}>★</span>
+                  ) : null}
                 </div>
               )
             })
+          ).flat()}
+        </div>
+      </div>
+    )
+  }
+
+  // Full game view
+  return (
+    <div css={containerStyle}>
+      {/* Header */}
+      <div css={headerStyle}>
+        <div css={headerLeftStyle}>
+          <h1 css={titleStyle}>
+            Game #{gameId} - {playerRole.isPlayer ? 'Player Mode' : 'Spectator Mode'}
+          </h1>
+          <div css={statusStyle}>{gameMessage}</div>
+        </div>
+        <div css={headerRightStyle}>
+          <button css={refreshButtonStyle} onClick={refreshCache} disabled={isLoading || cacheLoading}>
+            {isLoading || cacheLoading ? '⏳' : '🔄'} Refresh
+          </button>
+          {onClose && (
+            <button css={closeButtonStyle} onClick={onClose}>
+              ✕ Close
+            </button>
           )}
         </div>
       </div>
+
+      {/* Player Info */}
+      {players.length > 0 && (
+        <div css={playersStyle}>
+          <h3 css={sectionTitleStyle}>Players</h3>
+          <div css={playersListStyle}>
+            {players.map((player, index) => (
+              <div key={player.address} css={[
+                playerCardStyle, 
+                player.isCurrent && currentPlayerStyle,
+                player.isYou && yourPlayerStyle
+              ]}>
+                <div css={playerNameStyle}>
+                  {player.name}
+                  {player.isYou && <span css={youIndicatorStyle}>YOU</span>}
+                  {player.isCurrent && <span css={currentIndicatorStyle}>●</span>}
+                </div>
+                <div css={playerAddressStyle}>
+                  {player.address.slice(0, 6)}...{player.address.slice(-4)}
+                </div>
+                <div css={playerScoreStyle}>{player.score} pts</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div css={mainContentStyle}>
+        {/* Game Board */}
+        <div css={boardContainerStyle}>
+          <div css={boardStyle}>
+            {Array.from({ length: 15 }, (_, row) =>
+              Array.from({ length: 15 }, (_, col) => renderCell(col, row))
+            ).flat()}
+          </div>
+        </div>
+
+        {/* Player Interface (only shown for players) */}
+        {playerRole.isPlayer && (
+          <div css={interfaceStyle}>
+            {/* Player Hand */}
+            <div css={handSectionStyle}>
+              <h3 css={sectionTitleStyle}>Your Hand ({playerHand.length} tiles)</h3>
+              <div css={handStyle}>
+                {playerHand.map((tileNumber, index) => (
+                  <div
+                    key={`${tileNumber}-${index}`}
+                    css={[
+                      handTileStyle,
+                      selectedTile === tileNumber && selectedHandTileStyle,
+                      playerRole.canMakeMove && clickableHandTileStyle
+                    ]}
+                    onClick={() => handleTileSelect(tileNumber)}
+                  >
+                    {tileNumber}
+                  </div>
+                ))}
+              </div>
+              {selectedTile !== null && (
+                <div css={selectedTileInfoStyle}>
+                  Selected: {selectedTile} (Click a board cell to place)
+                </div>
+              )}
+            </div>
+
+            {/* Pending Placements */}
+            {pendingPlacements.length > 0 && (
+              <div css={pendingSectionStyle}>
+                <h3 css={sectionTitleStyle}>Pending Placements ({pendingPlacements.length})</h3>
+                <div css={pendingListStyle}>
+                  {pendingPlacements.map((placement, index) => (
+                    <div key={index} css={pendingItemStyle}>
+                      <span>Tile {placement.number} → ({placement.x}, {placement.y})</span>
+                      <button css={removeButtonStyle} onClick={() => removePendingPlacement(index)}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div css={actionsSectionStyle}>
+              {playerRole.canMakeMove ? (
+                <div css={actionsStyle}>
+                  <button
+                    css={[actionButtonStyle, submitButtonStyle]}
+                    onClick={submitTurn}
+                    disabled={isSubmitting || pendingPlacements.length === 0}
+                  >
+                    {isSubmitting ? '⏳ Submitting...' : `🎲 Submit Turn (${pendingPlacements.length} tiles)`}
+                  </button>
+                  
+                  <button
+                    css={[actionButtonStyle, skipButtonStyle]}
+                    onClick={skipTurn}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? '⏳ Skipping...' : '⏭️ Skip Turn'}
+                  </button>
+                  
+                  {pendingPlacements.length > 0 && (
+                    <button
+                      css={[actionButtonStyle, clearButtonStyle]}
+                      onClick={clearPendingPlacements}
+                      disabled={isSubmitting}
+                    >
+                      🗑️ Clear All
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div css={waitingStyle}>
+                  ⏳ Waiting for your turn...
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Game Info */}
+      <div css={gameInfoStyle}>
+        <div css={infoItemStyle}>
+          <span css={infoLabelStyle}>Turn:</span>
+          <span css={infoValueStyle}>{currentGame?.turnNumber || 0}</span>
+        </div>
+        <div css={infoItemStyle}>
+          <span css={infoLabelStyle}>Tiles on Board:</span>
+          <span css={infoValueStyle}>{placedTiles.length}</span>
+        </div>
+        <div css={infoItemStyle}>
+          <span css={infoLabelStyle}>Pool Remaining:</span>
+          <span css={infoValueStyle}>{currentGame?.tilesRemaining || 0}</span>
+        </div>
+        {playerRole.isPlayer && (
+          <div css={infoItemStyle}>
+            <span css={infoLabelStyle}>Your Score:</span>
+            <span css={infoValueStyle}>{currentGame?.playerScores?.[playerRole.playerIndex!] || 0}</span>
+          </div>
+        )}
+        <div css={infoItemStyle}>
+          <span css={infoLabelStyle}>Status:</span>
+          <span css={infoValueStyle}>
+            {currentGame?.state === 0 ? 'Setup' : 
+             currentGame?.state === 1 ? 'In Progress' : 
+             currentGame?.state === 2 ? 'Completed' : 'Unknown'}
+          </span>
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div css={errorStyle}>
+          ❌ {error}
+        </div>
+      )}
     </div>
   )
 }
 
-// Cozy knitting animations
-const gentleFloat = keyframes`
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-3px) rotate(1deg); }
-`
-
-const yarnFloat = keyframes`
-  0% { transform: translateY(100vh) translateX(0px) rotate(0deg); opacity: 0; }
-  10% { opacity: 0.4; }
-  90% { opacity: 0.4; }
-  100% { transform: translateY(-20px) translateX(30px) rotate(180deg); opacity: 0; }
-`
-
-const stitchingExpand = keyframes`
-  0% { 
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 0.8;
-  }
-  50% {
-    opacity: 0.6;
-  }
-  100% { 
-    transform: translate(-50%, -50%) scale(2.5);
-    opacity: 0;
-  }
-`
-
-const newPatchStitch = keyframes`
-  0% { 
-    border-color: transparent;
-    transform: scale(0.8);
-  }
-  50% {
-    border-color: rgba(139, 69, 19, 0.8);
-    transform: scale(1.1);
-  }
-  100% { 
-    border-color: rgba(139, 69, 19, 0.6);
-    transform: scale(1);
-  }
-`
-
-const simpleGlow = keyframes`
-  0%, 100% { box-shadow: 0 0 12px rgba(218, 165, 32, 0.4); }
-  50% { box-shadow: 0 0 20px rgba(218, 165, 32, 0.7); }
-`
-
-// Simple container for the game board
-const quiltingWorkspaceStyle = css`
-  width: 100%;
-  height: 100%;
+// Styles
+const containerStyle = css`
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  position: relative;
-  
-  @media (max-width: 768px) {
-    padding: 12px;
-  }
-  
-  @media (max-width: 480px) {
-    padding: 10px;
-  }
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 `
 
-// Mystical orb container for floating ambiance
-const orbContainerStyle = css`
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1;
-`
-
-// Individual floating mystical orbs
-const floatingOrbStyle = ({ delay, duration, x, size, color }: { delay: number, duration: number, x: number, size: number, color: string }) => css`
-  position: absolute;
-  left: ${x}%;
-  width: ${size}px;
-  height: ${size}px;
-  background: radial-gradient(circle, ${color} 0%, rgba(255,215,0,0.3) 30%, ${color} 100%);
-  border-radius: 50%;
-  animation: ${yarnFloat} ${duration}s linear infinite;
-  animation-delay: ${delay}s;
-  filter: blur(0.5px);
-  box-shadow: 
-    0 2px 4px rgba(139, 69, 19, 0.3),
-    0 0 8px rgba(255, 215, 0, 0.4);
-`
-
-// Stitching ripple effect when patches are sewn
-const stitchingRippleStyle = css`
-  position: absolute;
-  width: 24px;
-  height: 24px;
-  border: 3px dashed rgba(139, 69, 19, 0.8);
-  border-radius: 50%;
-  background: rgba(218, 165, 32, 0.2);
-  animation: ${stitchingExpand} 1.2s ease-out;
-  pointer-events: none;
-  z-index: 5;
-`
-
-// Magical Quilt Loom - The actual summoning surface (zoomable/pannable)
-const quiltGridStyle = css`
-  display: grid;
-  grid-template-columns: repeat(15, 70px);
-  grid-template-rows: repeat(15, 70px);
-  gap: 2px;
-  width: 100%;
-  height: 100%;
-  min-width: 1080px;
-  min-height: 1080px;
-  aspect-ratio: 1;
-  position: relative;
-  transform-origin: center center;
-  
-  /* Magical fabric quilt surface */
-  background: 
-    /* Woven fabric texture */
-    repeating-linear-gradient(0deg, 
-      rgba(75, 0, 130, 0.1) 0px, rgba(75, 0, 130, 0.1) 2px,
-      rgba(138, 43, 226, 0.1) 2px, rgba(138, 43, 226, 0.1) 4px,
-      transparent 4px, transparent 8px
-    ),
-    repeating-linear-gradient(90deg, 
-      rgba(255, 215, 0, 0.1) 0px, rgba(255, 215, 0, 0.1) 2px,
-      rgba(218, 165, 32, 0.1) 2px, rgba(218, 165, 32, 0.1) 4px,
-      transparent 4px, transparent 8px
-    ),
-    /* Magical shimmer patterns */
-    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.2) 0%, transparent 20%),
-    radial-gradient(circle at 75% 75%, rgba(138, 43, 226, 0.15) 0%, transparent 25%),
-    radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.1) 0%, transparent 15%),
-    /* Base magical fabric color */
-    linear-gradient(135deg, 
-      #2F1B69 0%,     /* Deep mystical purple */
-      #4B0082 25%,    /* Indigo */
-      #6A5ACD 50%,    /* Slate blue center */
-      #4B0082 75%,    /* Indigo */
-      #2F1B69 100%    /* Deep mystical purple */
-    );
-  
-  background-size: 
-    12px 12px,  /* Vertical weave */
-    12px 12px,  /* Horizontal weave */
-    80px 60px,  /* Shimmer 1 */
-    100px 80px, /* Shimmer 2 */
-    60px 40px,  /* Shimmer 3 */
-    100% 100%;  /* Base gradient */
-  
-  /* Mystical yarn border - stitched edges */
-  border-radius: 12px;
-  padding: 12px;
-  
-  /* Magical stitched border */
-  box-shadow: 
-    /* Inner fabric edge */
-    inset 0 0 0 2px rgba(255, 215, 0, 0.4),
-    /* Stitching pattern */
-    inset 0 0 0 4px rgba(138, 43, 226, 0.3),
-    inset 0 0 0 6px rgba(255, 215, 0, 0.2),
-    /* Outer magical glow */
-    0 0 15px rgba(138, 43, 226, 0.4),
-    0 0 30px rgba(255, 215, 0, 0.2),
-    /* Quilt shadow */
-    0 8px 20px rgba(0, 0, 0, 0.3);
-  
-  /* Subtle magical sparkle animation */
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: 
-      radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 10%),
-      radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.1) 0%, transparent 10%),
-      radial-gradient(circle at 40% 40%, rgba(138, 43, 226, 0.1) 0%, transparent 10%);
-    background-size: 50px 50px, 70px 70px, 60px 60px;
-    animation: ${gentleFloat} 8s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 1;
-  }
-  
-  @media (max-width: 768px) {
-    grid-template-columns: repeat(15, 50px);
-    grid-template-rows: repeat(15, 50px);
-    gap: 1px;
-    min-width: 765px;
-    min-height: 765px;
-    padding: 10px;
-    box-shadow: 
-      inset 0 0 0 2px rgba(255, 215, 0, 0.4),
-      inset 0 0 0 4px rgba(138, 43, 226, 0.3),
-      0 0 10px rgba(138, 43, 226, 0.3),
-      0 6px 15px rgba(0, 0, 0, 0.3);
-  }
-  
-  @media (max-width: 480px) {
-    grid-template-columns: repeat(15, 40px);
-    grid-template-rows: repeat(15, 40px);
-    gap: 1px;
-    min-width: 615px;
-    min-height: 615px;
-    padding: 8px;
-    box-shadow: 
-      inset 0 0 0 2px rgba(255, 215, 0, 0.4),
-      0 0 8px rgba(138, 43, 226, 0.3),
-      0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-`
-
-// Individual fabric patch slot on the magical quilt - Where rune threads are woven
-const patchSlotStyle = css`
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(138, 43, 226, 0.3);
-  border-radius: 6px; /* Soft fabric patch slot */
+const headerStyle = css`
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="%23FFD700" stroke="%23654321" stroke-width="2"/><path d="M6 6 L14 14 M14 6 L6 14" stroke="%23654321" stroke-width="2" stroke-linecap="round"/></svg>') 10 10, pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  
-  /* Magical fabric weave texture */
-  background-image: 
-    /* Mystical thread patterns */
-    repeating-linear-gradient(45deg, 
-      rgba(255, 215, 0, 0.1) 0px, 
-      rgba(255, 215, 0, 0.1) 1px, 
-      transparent 1px, 
-      transparent 6px),
-    repeating-linear-gradient(-45deg, 
-      rgba(138, 43, 226, 0.08) 0px, 
-      rgba(138, 43, 226, 0.08) 1px, 
-      transparent 1px, 
-      transparent 6px);
-  background-size: 10px 10px, 10px 10px;
-  
-  /* Soft fabric slot shadow */
-  box-shadow: 
-    inset 0 1px 2px rgba(75, 0, 130, 0.2),
-    inset 0 -1px 2px rgba(255, 215, 0, 0.1),
-    0 1px 2px rgba(138, 43, 226, 0.1);
-  
-  &:hover {
-    background: rgba(255, 215, 0, 0.15);
-    border-color: rgba(255, 215, 0, 0.6);
-    transform: scale(1.02);
-    box-shadow: 
-      0 0 12px rgba(255, 215, 0, 0.3),
-      0 0 20px rgba(138, 43, 226, 0.2),
-      inset 0 1px 3px rgba(255, 215, 0, 0.2);
-  }
+  padding: 1rem 2rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 `
 
-// Center pin for starting the quilt
-const centerPinStyle = css`
-  background: linear-gradient(135deg, #FFD700 0%, #DAA520 50%, #B8860B 100%);
-  border: 2px solid #8B4513;
-  animation: ${gentleFloat} 4s ease-in-out infinite;
-  box-shadow: 0 4px 8px rgba(139, 69, 19, 0.3);
-`
-
-// Empty fabric patch slot - ready for magical thread weaving
-const emptySlotStyle = css`
-  background: rgba(75, 0, 130, 0.1);
-  border-color: rgba(138, 43, 226, 0.2);
-  
-  /* Subtle empty patch indication */
-  box-shadow: 
-    inset 0 1px 2px rgba(75, 0, 130, 0.2),
-    inset 0 -1px 2px rgba(255, 215, 0, 0.05);
-`
-
-// Summoning spot where threads can be woven
-const sewingSpotStyle = (scale: number) => css`
-  background: rgba(255, 215, 0, ${0.15 + (scale * 0.1)});
-  border: ${Math.max(2, scale * 3)}px solid rgba(255, 215, 0, ${0.4 + (scale * 0.2)});
-  position: relative;
-  
-  /* Mystical energy ready indicator */
-  box-shadow: 0 0 ${Math.max(8, scale * 15)}px rgba(255, 215, 0, ${0.3 + (scale * 0.2)});
-  
-  &:hover {
-    background: rgba(255, 215, 0, 0.3);
-    border-color: #FFD700;
-    transform: scale(${1.05 + (scale * 0.03)});
-    box-shadow: 0 0 25px rgba(255, 215, 0, 0.6);
-  }
-`
-
-// Blocked sewing spot
-const blockedSewingStyle = css`
-  background: rgba(205, 92, 92, 0.15);
-  border: 2px solid rgba(205, 92, 92, 0.4);
-  cursor: not-allowed;
-  box-shadow: 0 0 8px rgba(205, 92, 92, 0.3);
-  
-  &:hover {
-    background: rgba(205, 92, 92, 0.25);
-    border-color: rgba(205, 92, 92, 0.6);
-    box-shadow: 0 0 12px rgba(205, 92, 92, 0.4);
-  }
-`
-
-// New patch glow effect
-const newPatchGlowStyle = css`
-  animation: ${simpleGlow} 2s ease-in-out infinite;
-  border-color: #DAA520 !important;
-`
-
-// Clickable patch slot style
-const clickablePatchSlotStyle = css`
-  cursor: pointer;
-  
-  &:hover {
-    transform: scale(1.08) !important;
-    box-shadow: 0 0 20px rgba(218, 165, 32, 0.6) !important;
-  }
-`
-
-// Patch holder wrapper
-const patchHolderStyle = css`
-  position: relative;
-  width: 100%;
-  height: 100%;
+const headerLeftStyle = css`
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.5rem;
 `
 
-// Return yarn indicator
-const returnIconStyle = css`
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  font-size: 10px;
-  background: rgba(218, 165, 32, 0.9);
-  border-radius: 50%;
-  width: 18px;
-  height: 18px;
+const headerRightStyle = css`
   display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-  border: 1px solid rgba(139, 69, 19, 0.6);
-  animation: ${simpleGlow} 2s infinite;
+  gap: 1rem;
 `
 
-// New patch stitching effect
-const newPatchStitchingStyle = css`
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px;
-  border: 2px dashed rgba(139, 69, 19, 0.6);
-  border-radius: 8px;
-  background: rgba(218, 165, 32, 0.1);
-  animation: ${newPatchStitch} 1.5s ease-out;
-  pointer-events: none;
-  z-index: 8;
+const titleStyle = css`
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
 `
 
-// Stitching connections between adjacent patches
-const rightStitchStyle = css`
-  position: absolute;
-  right: -4px;
-  top: 50%;
-  width: 8px;
-  height: 80%;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(139, 69, 19, 0.85) 0px,
-    rgba(139, 69, 19, 0.85) 5px,
-    transparent 5px,
-    transparent 10px
-  );
+const statusStyle = css`
+  font-size: 0.9rem;
+  opacity: 0.8;
+`
+
+const refreshButtonStyle = css`
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 0.5rem 1rem;
   border-radius: 4px;
-  box-shadow: 0 0 2px rgba(139, 69, 19, 0.6);
-  transform: translateY(-50%);
-  pointer-events: none;
-  z-index: 3;
+  cursor: pointer;
+  font-size: 0.9rem;
+  
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `
 
-const downStitchStyle = css`
-  position: absolute;
-  bottom: -4px;
-  left: 50%;
-  width: 80%;
-  height: 8px;
-  background: repeating-linear-gradient(
-    90deg,
-    rgba(139, 69, 19, 0.85) 0px,
-    rgba(139, 69, 19, 0.85) 5px,
-    transparent 5px,
-    transparent 10px
-  );
+const closeButtonStyle = css`
+  background: rgba(255, 0, 0, 0.2);
+  border: 1px solid rgba(255, 0, 0, 0.3);
+  color: white;
+  padding: 0.5rem 1rem;
   border-radius: 4px;
-  box-shadow: 0 0 2px rgba(139, 69, 19, 0.6);
-  transform: translateX(-50%);
-  pointer-events: none;
-  z-index: 3;
-`
-
-// Center pin crystal
-const centerPinCrystalStyle = css`
-  font-size: 16px;
-  animation: ${gentleFloat} 4s ease-in-out infinite;
-  filter: drop-shadow(0 2px 4px rgba(139, 69, 19, 0.4));
-`
-
-// Sewing indicator
-const sewingIndicatorStyle = (scale: number) => css`
-  position: absolute;
-  font-size: ${Math.max(12, scale * 18)}px;
-  color: #8B4513;
-  text-shadow: 0 0 4px rgba(218, 165, 32, 0.8);
-  pointer-events: none;
-  animation: ${gentleFloat} 2s ease-in-out infinite;
-  z-index: 6;
-  filter: drop-shadow(0 2px 4px rgba(139, 69, 19, 0.3));
+  cursor: pointer;
+  font-size: 0.9rem;
   
-  @media (max-width: 768px) {
-    font-size: ${Math.max(16, scale * 22)}px;
-  }
-`
-
-// Grid container - enhanced for zoom/pan functionality
-const quiltGridContainerStyle = css`
-  flex: 1;
-  max-width: min(90vh, 90vw);
-  max-height: min(90vh, 90vw);
-  aspect-ratio: 1;
-  position: relative;
-  cursor: default;
-  overflow: hidden;
-  border-radius: 12px;
-  background: linear-gradient(135deg, 
-    rgba(160, 82, 45, 0.1) 0%, 
-    rgba(218, 165, 32, 0.05) 50%, 
-    rgba(139, 69, 19, 0.1) 100%);
-  
-  /* Show grab cursor when shift is held */
   &:hover {
-    cursor: crosshair;
-  }
-  
-  /* Magical border like hemp rope */
-  border: 4px solid;
-  border-image: repeating-linear-gradient(
-    45deg,
-    rgba(139, 69, 19, 0.8) 0px,
-    rgba(139, 69, 19, 0.8) 8px,
-    rgba(218, 165, 32, 0.6) 8px,
-    rgba(218, 165, 32, 0.6) 16px
-  ) 4;
-  
-  box-shadow: 
-    0 8px 16px rgba(139, 69, 19, 0.3),
-    inset 0 2px 6px rgba(255, 215, 0, 0.2),
-    0 0 20px rgba(255, 215, 0, 0.1);
-    
-  @media (max-width: 768px) {
-    max-width: min(80vh, 95vw);
-    max-height: min(80vh, 95vw);
-    border-width: 3px;
+    background: rgba(255, 0, 0, 0.3);
   }
 `
 
-// Zoom controls styles
-const zoomControlsStyle = css`
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(255, 255, 255, 0.8);
-  padding: 8px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+const playersStyle = css`
+  padding: 1rem 2rem;
+  background: rgba(0, 0, 0, 0.1);
 `
 
-const zoomButtonGroupStyle = css`
+const sectionTitleStyle = css`
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffd700;
+`
+
+const playersListStyle = css`
   display: flex;
-  gap: 8px;
+  gap: 1rem;
+  flex-wrap: wrap;
 `
 
-const zoomButtonStyle = css`
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  color: #8B4513;
-  transition: color 0.3s;
-
-  &:hover {
-    color: #FFD700;
-  }
-`
-
-const resetButtonStyle = css`
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  color: #8B4513;
-  transition: color 0.3s;
-
-  &:hover {
-    color: #FFD700;
-  }
-`
-
-const zoomIndicatorStyle = css`
+const playerCardStyle = css`
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  min-width: 150px;
   text-align: center;
-  margin-top: 8px;
-  font-size: 14px;
+`
+
+const currentPlayerStyle = css`
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.5);
+`
+
+const yourPlayerStyle = css`
+  background: rgba(76, 175, 80, 0.2);
+  border-color: rgba(76, 175, 80, 0.5);
+`
+
+const playerNameStyle = css`
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+`
+
+const youIndicatorStyle = css`
+  background: rgba(76, 175, 80, 0.8);
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 10px;
   font-weight: bold;
 `
 
-const zoomHintStyle = css`
-  text-align: center;
-  margin-top: 8px;
-  font-size: 12px;
-  color: #8B4513;
+const currentIndicatorStyle = css`
+  color: #ffd700;
+  font-size: 0.8rem;
 `
 
-// Pan/Zoom instructions
-const instructionsStyle = css`
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.8);
-  padding: 8px 16px;
+const playerAddressStyle = css`
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin-bottom: 0.5rem;
+`
+
+const playerScoreStyle = css`
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffd700;
+`
+
+const mainContentStyle = css`
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+`
+
+const boardContainerStyle = css`
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+`
+
+const boardStyle = css`
+  display: grid;
+  grid-template-columns: repeat(15, 40px);
+  grid-template-rows: repeat(15, 40px);
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 10px;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  font-size: 14px;
-  color: #8B4513;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+`
+
+const cellStyle = css`
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+`
+
+const centerCellStyle = css`
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.5);
+`
+
+const clickableCellStyle = css`
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+  }
+`
+
+const tileStyle = css`
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  font-weight: bold;
+`
+
+const pendingTileStyle = css`
+  background: rgba(255, 215, 0, 0.8);
+  animation: pulse 1s infinite;
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+  }
+`
+
+const tileNumberStyle = css`
+  font-size: 1rem;
+`
+
+const centerMarkerStyle = css`
+  color: #ffd700;
+  font-size: 1.4rem;
+`
+
+const interfaceStyle = css`
+  width: 400px;
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+`
+
+const handSectionStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`
+
+const handStyle = css`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+`
+
+const handTileStyle = css`
+  width: 50px;
+  height: 50px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+`
+
+const clickableHandTileStyle = css`
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+  }
+`
+
+const selectedHandTileStyle = css`
+  background: rgba(255, 215, 0, 0.3);
+  border-color: rgba(255, 215, 0, 0.8);
+  transform: scale(1.1);
+`
+
+const selectedTileInfoStyle = css`
+  font-size: 0.9rem;
+  color: #ffd700;
   text-align: center;
+`
+
+const pendingSectionStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`
+
+const pendingListStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`
+
+const pendingItemStyle = css`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 215, 0, 0.1);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+`
+
+const removeButtonStyle = css`
+  background: rgba(255, 0, 0, 0.3);
+  border: none;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.8rem;
+  
+  &:hover {
+    background: rgba(255, 0, 0, 0.5);
+  }
+`
+
+const actionsSectionStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`
+
+const actionsStyle = css`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`
+
+const actionButtonStyle = css`
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`
+
+const submitButtonStyle = css`
+  background: #4CAF50;
+  color: white;
+  
+  &:hover:not(:disabled) {
+    background: #45a049;
+    transform: translateY(-2px);
+  }
+`
+
+const skipButtonStyle = css`
+  background: #FF9800;
+  color: white;
+  
+  &:hover:not(:disabled) {
+    background: #e68900;
+    transform: translateY(-2px);
+  }
+`
+
+const clearButtonStyle = css`
+  background: #f44336;
+  color: white;
+  
+  &:hover:not(:disabled) {
+    background: #da190b;
+    transform: translateY(-2px);
+  }
+`
+
+const waitingStyle = css`
+  text-align: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  opacity: 0.7;
+`
+
+const gameInfoStyle = css`
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 1rem 2rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+`
+
+const infoItemStyle = css`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+`
+
+const infoLabelStyle = css`
+  font-size: 0.8rem;
+  opacity: 0.7;
+`
+
+const infoValueStyle = css`
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffd700;
+`
+
+const errorStyle = css`
+  background: rgba(255, 0, 0, 0.2);
+  border: 1px solid rgba(255, 0, 0, 0.5);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 2rem;
+  color: #ffcccb;
+`
+
+// Compact styles for gallery view
+const compactContainerStyle = css`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`
+
+const compactBoardStyle = css`
+  display: grid;
+  grid-template-columns: repeat(15, 8px);
+  grid-template-rows: repeat(15, 8px);
+  gap: 0.5px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  border-radius: 4px;
+`
+
+const compactCellStyle = css`
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`
+
+const compactCenterStyle = css`
+  background: rgba(255, 215, 0, 0.3);
+`
+
+const compactTileNumberStyle = css`
+  font-size: 6px;
+  color: white;
+  font-weight: bold;
+`
+
+const compactCenterMarkerStyle = css`
+  font-size: 6px;
+  color: #ffd700;
 `

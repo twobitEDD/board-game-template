@@ -4,7 +4,7 @@ async function testContract() {
   console.log("🧪 Testing deployed FivesGame contract...\n");
 
   // Connect to the deployed contract
-  const contractAddress = "0x80f80B22D1839F2216F7f7814398e7039Fc17546";
+  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
   const FivesGame = await ethers.getContractFactory("FivesGame");
   const fivesGame = FivesGame.attach(contractAddress);
 
